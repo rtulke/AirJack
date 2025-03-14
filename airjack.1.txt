@@ -1,0 +1,135 @@
+.TH WIFICRACKPY 1 "March 2025" "WiFiCrackPy 1.0" "User Commands"
+
+.SH NAME
+wificrackpy \- WiFi security testing tool for macOS
+
+.SH SYNOPSIS
+.B wificrackpy
+[\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B wificrackpy
+is a tool for testing the security of WPA/WPA2 protected WiFi networks on macOS systems.
+It scans for available networks, captures handshakes, and attempts to recover passwords
+using dictionary or brute-force methods.
+
+.PP
+.B WARNING:
+This tool is for EDUCATIONAL PURPOSES ONLY. Only use on networks you own or have
+explicit permission to test. Unauthorized access to computer networks is illegal.
+
+.SH OPTIONS
+.SS Configuration Options:
+.TP
+.BI \-c " FILE" ", \-\-config=" FILE
+Use configuration from specified file.
+.TP
+.BI \-C " PATH" ", \-\-create\-config=" PATH
+Create a default configuration file at the specified path.
+
+.SS Tool Paths:
+.TP
+.BI "\-\-hashcat\-path=" PATH
+Path to hashcat executable (default: from config or ~/hashcat/hashcat).
+.TP
+.BI "\-\-zizzania\-path=" PATH
+Path to zizzania executable (default: from config or ~/zizzania/src/zizzania).
+
+.SS Network Selection:
+.TP
+.BI \-i " INTERFACE" ", \-\-interface=" INTERFACE
+Network interface to use (default: from config or auto-detect).
+.TP
+.BI \-n " INDEX" ", \-\-network\-index=" INDEX
+Select network by index, skipping interactive selection.
+
+.SS Capture Options:
+.TP
+.B \-d\fR, \fB\-\-deauth
+Enable deauthentication (default: from config or disabled).
+.TP
+.BI "\-\-capture\-file=" FILE
+Output capture file (default: from config or capture.pcap).
+.TP
+.BI "\-\-hashcat\-file=" FILE
+Output hashcat file (default: from config or capture.hc22000).
+
+.SS Cracking Options:
+.TP
+.BI \-m " MODE" ", \-\-mode=" MODE
+Attack mode: 1=Dictionary, 2=Brute-force, 3=Manual.
+.TP
+.BI \-w " FILE" ", \-\-wordlist=" FILE
+Path to wordlist for dictionary attack.
+.TP
+.BI \-p " PATTERN" ", \-\-pattern=" PATTERN
+Pattern for brute-force attack.
+.TP
+.B \-o\fR, \fB\-\-optimize
+Enable hashcat optimization (default: from config or disabled).
+
+.SS Misc Options:
+.TP
+.BI "\-\-auth\-timeout=" SECONDS
+Timeout for location authorization (default: from config or 60 seconds).
+.TP
+.B \-\-cleanup
+Clean up sensitive files after completion (default: from config or disabled).
+.TP
+.B \-\-dry\-run
+Simulate actions without running external tools.
+.TP
+.B \-\-ignore\-missing
+Ignore missing tools and continue.
+.TP
+.B \-\-no\-banner
+Disable banner display.
+.TP
+.B \-v\fR, \fB\-\-verbose
+Enable verbose output (default: from config or disabled).
+
+.SH FILES
+.TP
+.I ~/.wificrack.conf
+User configuration file.
+.TP
+.I /etc/wificrack.conf
+System-wide configuration file.
+.TP
+.I capture.pcap
+Default packet capture file.
+.TP
+.I capture.hc22000
+Default hashcat format file.
+
+.SH EXAMPLES
+.TP
+Scan networks and follow interactive prompts:
+.B wificrackpy
+.TP
+Create a default configuration file:
+.B wificrackpy \-C ~/.wificrack.conf
+.TP
+Use a specific configuration file:
+.B wificrackpy \-c ~/custom.conf
+.TP
+Dictionary attack on the first network using specified wordlist:
+.B wificrackpy \-n 1 \-m 1 \-w /path/to/wordlist.txt
+.TP
+Brute force attack with optimization:
+.B wificrackpy \-m 2 \-p "?d?d?d?d?d?d?d?d" \-o
+
+.SH SEE ALSO
+.BR hashcat (1),
+.BR tcpdump (1),
+.BR aircrack-ng (1)
+
+.SH BUGS
+Please report bugs at https://github.com/yourusername/wificrackpy/issues
+
+.SH AUTHOR
+Your Name <your.email@example.com>
+
+.SH COPYRIGHT
+Copyright \(co 2025 Your Name. 
+Licensed under MIT License.
