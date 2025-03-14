@@ -60,10 +60,28 @@ cd ~/zizzania
 make
 ```
 
-4. Create default configuration (optional):
+5. Setup System wide
 ```bash
-python AirJack.py -C ~/.airjack.conf
+# Copy AirJack script to `/usr/local/bin/airjack`
+sudo cp AirJack.py /usr/local/bin/airjack
+
+# Install man page and updating mandb
+sudo cp airjack.1 /usr/local/share/man/man1/
+sudo mandb
+
+# Use the AirJack script from any directory
+$ airjack -h
+
+# Create default configuration (optional)
+$ airjack.py -C ~/.airjack.conf
+
+# Uou can also try to edit the new generated configuration file
+$ vim ~/.airjack.conf
+
+# Try using the manual
+$ man airjack
 ```
+
 
 ## Usage
 
