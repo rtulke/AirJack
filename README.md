@@ -64,6 +64,7 @@ make
 ```bash
 # Copy AirJack script to `/usr/local/bin/airjack`
 sudo cp AirJack.py /usr/local/bin/airjack
+sudo chmod +x /usr/local/bin/airjack
 
 # Install man page and updating mandb
 sudo cp airjack.1 /usr/local/share/man/man1/
