@@ -162,7 +162,7 @@ install_zizzania() {
             cd ~/zizzania
             print_message "Configuring zizzania..."
             
-            # Check if CMakeLists.txt exists instead of Makefile
+            # Check for different build systems
             if [ -f "CMakeLists.txt" ]; then
                 mkdir -p build
                 cd build
@@ -171,6 +171,12 @@ install_zizzania() {
                 make
                 print_success "Zizzania installed at ~/zizzania/build"
             elif [ -f "Makefile" ]; then
+                print_message "Compiling zizzania..."
+                make
+                print_success "Zizzania installed at ~/zizzania"
+            elif [ -f "config.Makefile" ]; then
+                print_message "Using config.Makefile..."
+                cp config.Makefile Makefile
                 print_message "Compiling zizzania..."
                 make
                 print_success "Zizzania installed at ~/zizzania"
@@ -194,7 +200,7 @@ install_zizzania() {
 
 # Clone AirJack repository
 clone_repo() {
-    if ask_continue "Download AirJAck?"; then
+    if ask_continue "Download AirJack?"; then
         print_message "Cloning AirJack repository to temporary directory..."
         cd "$TEMP_DIR"
         git clone "$REPO_URL" .
@@ -310,7 +316,7 @@ main() {
     install_tools
     install_zizzania
     
-    # Download and install WiFiCrackPy
+    # Download and install AirJack
     clone_repo
     install_python_deps
     setup_config
