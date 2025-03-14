@@ -17,7 +17,7 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/usr/local/etc/airjack"
 MAN_DIR="/usr/local/share/man/man1"
 TEMP_DIR=$(mktemp -d)
-REPO_URL="https://github.com/yourusername/AirJack.git"
+REPO_URL="https://github.com/rtulke/airjack.git"
 
 # Function to print colored messages
 print_message() {
@@ -142,6 +142,11 @@ install_zizzania() {
         print_message "Installing zizzania dependencies..."
         brew install cmake libpcap
         
+        # Set up environment for zizzania compilation
+        export LDFLAGS="-L$(brew --prefix libpcap)/lib"
+        export CPPFLAGS="-I$(brew --prefix libpcap)/include"
+        export PKG_CONFIG_PATH="$(brew --prefix libpcap)/lib/pkgconfig"
+        
         print_message "Cloning zizzania repository..."
         if [ -d ~/zizzania ]; then
             print_warning "Zizzania directory already exists at ~/zizzania."
@@ -155,9 +160,32 @@ install_zizzania() {
         
         if [ -d ~/zizzania ]; then
             cd ~/zizzania
-            print_message "Compiling zizzania..."
-            make
-            print_success "Zizzania installed at ~/zizzania"
+            print_message "Configuring zizzania..."
+            
+            # Check if CMakeLists.txt exists instead of Makefile
+            if [ -f "CMakeLists.txt" ]; then
+                mkdir -p build
+                cd build
+                cmake ..
+                print_message "Compiling zizzania..."
+                make
+                print_success "Zizzania installed at ~/zizzania/build"
+            elif [ -f "Makefile" ]; then
+                print_message "Compiling zizzania..."
+                make
+                print_success "Zizzania installed at ~/zizzania"
+            else
+                print_message "Manual build required. Attempting autogen/configure..."
+                if [ -f "autogen.sh" ]; then
+                    ./autogen.sh
+                    ./configure
+                    make
+                    print_success "Zizzania installed at ~/zizzania"
+                else
+                    print_error "No build system detected. Check the README in ~/zizzania"
+                    return 1
+                fi
+            fi
         else
             print_error "Failed to install zizzania."
         fi
@@ -166,7 +194,7 @@ install_zizzania() {
 
 # Clone AirJack repository
 clone_repo() {
-    if ask_continue "Download AirJack?"; then
+    if ask_continue "Download AirJAck?"; then
         print_message "Cloning AirJack repository to temporary directory..."
         cd "$TEMP_DIR"
         git clone "$REPO_URL" .
@@ -270,7 +298,7 @@ cleanup() {
 # Main installer function
 main() {
     print_message "AirJack Installer"
-    print_message "====================="
+    print_message "================="
     echo ""
     
     # Check system
@@ -282,7 +310,7 @@ main() {
     install_tools
     install_zizzania
     
-    # Download and install AirJack
+    # Download and install WiFiCrackPy
     clone_repo
     install_python_deps
     setup_config
@@ -295,7 +323,7 @@ main() {
     echo ""
     print_success "AirJack installation complete!"
     print_message "You can now run 'airjack' from anywhere."
-    print_message "For help, run 'airjack --help' or 'man AirJack'"
+    print_message "For help, run 'airjack --help' or 'man airjack'"
 }
 
 main "$@"
