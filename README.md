@@ -39,7 +39,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/rtulke/AirJack/main/inst
 pip install -r requirements.txt
 ```
 
-## Installation
+## Manuel Installation
 
 1. Clone the repository:
 ```bash
