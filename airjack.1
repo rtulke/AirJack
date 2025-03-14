@@ -1,14 +1,14 @@
-.TH WIFICRACKPY 1 "March 2025" "WiFiCrackPy 1.0" "User Commands"
+.TH AIRJACK 1 "March 2025" "AirJack 1.0" "User Commands"
 
 .SH NAME
-wificrackpy \- WiFi security testing tool for macOS
+airjack \- WiFi security testing tool for macOS
 
 .SH SYNOPSIS
-.B wificrackpy
+.B airjack
 [\fIOPTIONS\fR]
 
 .SH DESCRIPTION
-.B wificrackpy
+.B airjack
 is a tool for testing the security of WPA/WPA2 protected WiFi networks on macOS systems.
 It scans for available networks, captures handshakes, and attempts to recover passwords
 using dictionary or brute-force methods.
@@ -90,10 +90,10 @@ Enable verbose output (default: from config or disabled).
 
 .SH FILES
 .TP
-.I ~/.wificrack.conf
+.I ~/.airjack.conf
 User configuration file.
 .TP
-.I /etc/wificrack.conf
+.I /etc/airjack/airjack.conf
 System-wide configuration file.
 .TP
 .I capture.pcap
@@ -105,19 +105,19 @@ Default hashcat format file.
 .SH EXAMPLES
 .TP
 Scan networks and follow interactive prompts:
-.B wificrackpy
+.B airjack
 .TP
 Create a default configuration file:
-.B wificrackpy \-C ~/.wificrack.conf
+.B airjack \-C ~/.airjack.conf
 .TP
 Use a specific configuration file:
-.B wificrackpy \-c ~/custom.conf
+.B airjack \-c ~/custom.conf
 .TP
 Dictionary attack on the first network using specified wordlist:
-.B wificrackpy \-n 1 \-m 1 \-w /path/to/wordlist.txt
+.B airjack \-n 1 \-m 1 \-w /path/to/wordlist.txt
 .TP
 Brute force attack with optimization:
-.B wificrackpy \-m 2 \-p "?d?d?d?d?d?d?d?d" \-o
+.B airjack \-m 2 \-p "?d?d?d?d?d?d?d?d" \-o
 
 .SH SEE ALSO
 .BR hashcat (1),
@@ -125,11 +125,11 @@ Brute force attack with optimization:
 .BR aircrack-ng (1)
 
 .SH BUGS
-Please report bugs at https://github.com/yourusername/wificrackpy/issues
+Please report bugs at https://github.com/rtulke/airjack/issues
 
 .SH AUTHOR
-Your Name <your.email@example.com>
+Robert Tulke <rt@debian.sh>
 
 .SH COPYRIGHT
-Copyright \(co 2025 Your Name. 
+Copyright \(co 2025 Robert Tulke. 
 Licensed under MIT License.
