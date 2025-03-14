@@ -246,9 +246,11 @@ setup_config() {
         source "$VENV_PATH/bin/activate"
         python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
         
-        print_message "Creating default configuration file..."
+        # Use sudo to run the python script for system config
+        print_message "Creating default configuration file (administrator password may be required)..."
         cd "$TEMP_DIR"
-        python3 airjack.py -C "$CONFIG_DIR/airjack.conf"
+        # Make sure the script runs with the virtual environment's Python
+        sudo "$VENV_PATH/bin/python3" airjack.py -C "$CONFIG_DIR/airjack.conf"
         
         # Also create user config
         if ask_continue "Create user-specific configuration?"; then
@@ -360,8 +362,8 @@ main() {
     
     echo ""
     print_success "AirJack installation complete!"
-    print_message "You can now run 'AirJack' from anywhere."
-    print_message "For help, run 'AirJack --help' or 'man airjack'"
+    print_message "You can now run 'airjack' from anywhere."
+    print_message "For help, run 'airjack --help' or 'man airjack'"
 }
 
 main "$@"
