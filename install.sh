@@ -19,6 +19,16 @@ MAN_DIR="/usr/local/share/man/man1"
 TEMP_DIR=$(mktemp -d)
 REPO_URL="https://github.com/rtulke/airjack.git"
 
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
+}
+
+# Function to get the full path of a command
+get_command_path() {
+    command -v "$1"
+}
+
 # Function to print colored messages
 print_message() {
     echo -e "${BLUE}==>${NC} $1"
@@ -224,7 +234,7 @@ install_python_deps() {
             print_success "Python dependencies installed."
         else
             print_warning "requirements.txt not found. Installing manually..."
-            python3 -m pip install prettytable pyfiglet
+            python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
         fi
         
         # Deactivate virtual environment
@@ -298,7 +308,7 @@ install_script() {
         chmod +x "$TEMP_DIR/airjack.py"
         
         # Create a launcher script without .py extension
-        cat > "$TEMP_DIR/airjack" << EOF
+        cat > "$TEMP_DIR/AirJack" << EOF
 #!/bin/bash
 # Check if we need to set up virtual environment
 VENV_PATH="\$HOME/.airjack/venv"
@@ -318,14 +328,108 @@ deactivate
 EOF
         
         # Make the launcher executable
-        chmod +x "$TEMP_DIR/airjack"
+        chmod +x "$TEMP_DIR/AirJack"
         
         # Install both scripts
         sudo cp "$TEMP_DIR/airjack.py" "$INSTALL_DIR/"
-        sudo cp "$TEMP_DIR/airjack" "$INSTALL_DIR/"
+        sudo cp "$TEMP_DIR/AirJack" "$INSTALL_DIR/"
         
-        print_success "AirJack installed at $INSTALL_DIR/airjack"
+        print_success "AirJack installed at $INSTALL_DIR/AirJack"
     fi
+}
+
+# Check and set correct tool paths
+detect_tool_paths() {
+    print_message "Detecting installed tools..."
+    
+    # Find hashcat
+    if command_exists hashcat; then
+        HASHCAT_PATH=$(get_command_path hashcat)
+        print_success "Found hashcat at: $HASHCAT_PATH"
+    else
+        HASHCAT_PATH="$HOME/hashcat/hashcat"
+        print_warning "Hashcat not found in PATH, will use default: $HASHCAT_PATH"
+    fi
+    
+    # Find zizzania
+    if [ -x "$HOME/zizzania/build/zizzania" ]; then
+        ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
+        print_success "Found zizzania at: $ZIZZANIA_PATH"
+    elif [ -x "$HOME/zizzania/src/zizzania" ]; then
+        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+        print_success "Found zizzania at: $ZIZZANIA_PATH"
+    else
+        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+        print_warning "Zizzania not found, will use default: $ZIZZANIA_PATH"
+    fi
+    
+    # Update configuration with correct paths
+    if [ -f "$HOME/.airjack.conf" ]; then
+        print_message "Updating paths in user configuration..."
+        # Create temporary file
+        local temp_file=$(mktemp)
+        
+        # Read the file line by line
+        while IFS= read -r line; do
+            # Check if the line contains hashcat_path or zizzania_path
+            if [[ $line == hashcat_path* ]]; then
+                echo "hashcat_path = $HASHCAT_PATH" >> "$temp_file"
+            elif [[ $line == zizzania_path* ]]; then
+                echo "zizzania_path = $ZIZZANIA_PATH" >> "$temp_file"
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$HOME/.airjack.conf"
+        
+        # Replace the original file with the modified one
+        mv "$temp_file" "$HOME/.airjack.conf"
+        print_success "Configuration updated with correct tool paths."
+    fi
+}
+
+# Function to uninstall AirJack
+uninstall() {
+    print_message "Uninstalling AirJack"
+    print_message "===================="
+    echo ""
+    
+    if ask_continue "Remove AirJack script from $INSTALL_DIR?"; then
+        sudo rm -f "$INSTALL_DIR/airjack.py" "$INSTALL_DIR/AirJack"
+        print_success "Removed AirJack scripts"
+    fi
+    
+    if ask_continue "Remove AirJack configuration?"; then
+        sudo rm -rf "$CONFIG_DIR"
+        rm -f "$HOME/.airjack.conf"
+        print_success "Removed AirJack configuration"
+    fi
+    
+    if ask_continue "Remove AirJack man page?"; then
+        sudo rm -f "$MAN_DIR/airjack.1"
+        
+        # Update man database
+        if command -v mandb &> /dev/null; then
+            sudo mandb
+        elif command -v makewhatis &> /dev/null; then
+            sudo makewhatis
+        fi
+        
+        print_success "Removed AirJack man page"
+    fi
+    
+    if ask_continue "Remove Python virtual environment?"; then
+        rm -rf "$HOME/.airjack/venv"
+        print_success "Removed Python virtual environment"
+    fi
+    
+    if ask_continue "Remove zizzania?"; then
+        rm -rf "$HOME/zizzania"
+        print_success "Removed zizzania"
+    fi
+    
+    echo ""
+    print_success "AirJack uninstallation complete!"
+    return 0
 }
 
 # Final cleanup
@@ -335,8 +439,61 @@ cleanup() {
     print_success "Cleanup complete."
 }
 
+# Function to display usage information
+show_usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help              Show this help message"
+    echo "  -U, --uninstall         Uninstall AirJack"
+    echo "  -SI, --setup COMPONENT  Install specific component(s)"
+    echo ""
+    echo "Components for --setup:"
+    echo "  homebrew    Install Homebrew"
+    echo "  python      Install/update Python"
+    echo "  tools       Install hashcat and hcxtools"
+    echo "  zizzania    Install zizzania"
+    echo "  repo        Download AirJack repository"
+    echo "  python_deps Install Python dependencies"
+    echo "  config      Create configuration files"
+    echo "  manpage     Install man page"
+    echo "  script      Install AirJack script"
+    echo "  all         Install everything (default)"
+    echo ""
+}
+
 # Main installer function
 main() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            -U|--uninstall)
+                uninstall
+                exit $?
+                ;;
+            -SI|--setup)
+                if [[ -z $2 ]]; then
+                    print_error "Missing component for --setup"
+                    show_usage
+                    exit 1
+                fi
+                SETUP_COMPONENT=$2
+                shift # Remove argument name
+                shift # Remove argument value
+                ;;
+            *)
+                # Unknown option
+                print_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+    
     print_message "AirJack Installer"
     print_message "================="
     echo ""
@@ -344,26 +501,85 @@ main() {
     # Check system
     check_macos
     
-    # Dependencies
-    setup_homebrew
-    install_python
-    install_tools
-    install_zizzania
-    
-    # Download and install AirJack
-    clone_repo
-    install_python_deps
-    setup_config
-    install_manpage
-    install_script
+    # Check if we're in setup mode
+    if [[ -n $SETUP_COMPONENT ]]; then
+        case $SETUP_COMPONENT in
+            homebrew)
+                setup_homebrew
+                ;;
+            python)
+                install_python
+                ;;
+            tools)
+                setup_homebrew
+                install_tools
+                ;;
+            zizzania)
+                setup_homebrew
+                install_zizzania
+                ;;
+            repo)
+                clone_repo
+                ;;
+            python_deps)
+                install_python_deps
+                ;;
+            config)
+                setup_config
+                ;;
+            manpage)
+                install_manpage
+                ;;
+            script)
+                install_script
+                detect_tool_paths
+                ;;
+            all)
+                # Dependencies
+                setup_homebrew
+                install_python
+                install_tools
+                install_zizzania
+                
+                # Download and install AirJack
+                clone_repo
+                install_python_deps
+                setup_config
+                install_manpage
+                install_script
+                detect_tool_paths
+                ;;
+            *)
+                print_error "Unknown component: $SETUP_COMPONENT"
+                show_usage
+                exit 1
+                ;;
+        esac
+    else
+        # Run full installation
+        
+        # Dependencies
+        setup_homebrew
+        install_python
+        install_tools
+        install_zizzania
+        
+        # Download and install AirJack
+        clone_repo
+        install_python_deps
+        setup_config
+        install_manpage
+        install_script
+        detect_tool_paths
+    fi
     
     # Cleanup
     cleanup
     
     echo ""
     print_success "AirJack installation complete!"
-    print_message "You can now run 'airjack' from anywhere."
-    print_message "For help, run 'airjack --help' or 'man airjack'"
+    print_message "You can now run 'AirJack' from anywhere."
+    print_message "For help, run 'AirJack --help' or 'man airjack'"
 }
 
 main "$@"
