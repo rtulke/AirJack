@@ -28,6 +28,12 @@ These tools must be installed separately:
 - [zizzania](https://github.com/cyrus-and/zizzania) - WPA handshake capture tool
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
+
+### Quick Setup
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/rtulke/AirJack/main/install.sh)"
+```
+
 ### Python Dependencies
 ```
 pip install -r requirements.txt
