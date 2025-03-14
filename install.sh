@@ -140,7 +140,7 @@ install_tools() {
 install_zizzania() {
     if ask_continue "Install zizzania (required for handshake capture)?"; then
         print_message "Installing zizzania dependencies..."
-        brew install cmake libpcap
+        brew install --formula cmake libpcap
         
         # Set up environment for zizzania compilation
         export LDFLAGS="-L$(brew --prefix libpcap)/lib"
@@ -214,7 +214,11 @@ clone_repo() {
 # Install Python dependencies
 install_python_deps() {
     if ask_continue "Install Python dependencies?"; then
-        print_message "Installing Python dependencies..."
+        print_message "Creating virtual environment..."
+        python3 -m venv "$TEMP_DIR/venv"
+        source "$TEMP_DIR/venv/bin/activate"
+        
+        print_message "Installing Python dependencies in virtual environment..."
         if [ -f "$TEMP_DIR/requirements.txt" ]; then
             python3 -m pip install -r "$TEMP_DIR/requirements.txt"
             print_success "Python dependencies installed."
@@ -222,6 +226,9 @@ install_python_deps() {
             print_warning "requirements.txt not found. Installing manually..."
             python3 -m pip install prettytable pyfiglet
         fi
+        
+        # Deactivate virtual environment
+        deactivate
     fi
 }
 
@@ -230,6 +237,12 @@ setup_config() {
     if ask_continue "Create configuration files?"; then
         print_message "Creating configuration directory..."
         sudo mkdir -p "$CONFIG_DIR"
+        
+        # Create virtual environment in config directory
+        print_message "Creating permanent virtual environment..."
+        python3 -m venv "$CONFIG_DIR/venv"
+        source "$CONFIG_DIR/venv/bin/activate"
+        python3 -m pip install prettytable pyfiglet
         
         print_message "Creating default configuration file..."
         cd "$TEMP_DIR"
@@ -240,6 +253,9 @@ setup_config() {
             python3 airjack.py -C ~/.airjack.conf
             print_success "User configuration created at ~/.airjack.conf"
         fi
+        
+        # Deactivate virtual environment
+        deactivate
         
         print_success "Configuration set up successfully."
     fi
@@ -280,7 +296,19 @@ install_script() {
         # Create a launcher script without .py extension
         cat > "$TEMP_DIR/airjack" << EOF
 #!/bin/bash
+# Check if we need to set up virtual environment
+if [ ! -d "$CONFIG_DIR/venv" ]; then
+    echo "Setting up virtual environment..."
+    python3 -m venv "$CONFIG_DIR/venv"
+    source "$CONFIG_DIR/venv/bin/activate"
+    python3 -m pip install prettytable pyfiglet
+    deactivate
+fi
+
+# Activate virtual environment and run script
+source "$CONFIG_DIR/venv/bin/activate"
 python3 $INSTALL_DIR/airjack.py "\$@"
+deactivate
 EOF
         
         # Make the launcher executable
