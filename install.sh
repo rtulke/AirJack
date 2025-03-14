@@ -235,7 +235,7 @@ install_python_deps() {
 # Create configuration directory and install config file
 setup_config() {
     if ask_continue "Create configuration files?"; then
-        print_message "Creating configuration directory..."
+        print_message "Creating configuration directory (administrator password required)..."
         sudo mkdir -p "$CONFIG_DIR"
         
         # Create virtual environment in user home
@@ -244,7 +244,7 @@ setup_config() {
         mkdir -p "$(dirname "$VENV_PATH")"
         python3 -m venv "$VENV_PATH"
         source "$VENV_PATH/bin/activate"
-        python3 -m pip install prettytable pyfiglet
+        python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
         
         print_message "Creating default configuration file..."
         cd "$TEMP_DIR"
@@ -305,7 +305,7 @@ if [ ! -d "\$VENV_PATH" ]; then
     mkdir -p "\$(dirname "\$VENV_PATH")"
     python3 -m venv "\$VENV_PATH"
     source "\$VENV_PATH/bin/activate"
-    python3 -m pip install prettytable pyfiglet
+    python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
     deactivate
 fi
 
@@ -360,8 +360,8 @@ main() {
     
     echo ""
     print_success "AirJack installation complete!"
-    print_message "You can now run 'airjack' from anywhere."
-    print_message "For help, run 'airjack --help' or 'man airjack'"
+    print_message "You can now run 'AirJack' from anywhere."
+    print_message "For help, run 'AirJack --help' or 'man airjack'"
 }
 
 main "$@"
