@@ -238,10 +238,12 @@ setup_config() {
         print_message "Creating configuration directory..."
         sudo mkdir -p "$CONFIG_DIR"
         
-        # Create virtual environment in config directory
-        print_message "Creating permanent virtual environment..."
-        python3 -m venv "$CONFIG_DIR/venv"
-        source "$CONFIG_DIR/venv/bin/activate"
+        # Create virtual environment in user home
+        VENV_PATH="$HOME/.airjack/venv"
+        print_message "Creating virtual environment in $VENV_PATH..."
+        mkdir -p "$(dirname "$VENV_PATH")"
+        python3 -m venv "$VENV_PATH"
+        source "$VENV_PATH/bin/activate"
         python3 -m pip install prettytable pyfiglet
         
         print_message "Creating default configuration file..."
@@ -297,16 +299,18 @@ install_script() {
         cat > "$TEMP_DIR/airjack" << EOF
 #!/bin/bash
 # Check if we need to set up virtual environment
-if [ ! -d "$CONFIG_DIR/venv" ]; then
+VENV_PATH="\$HOME/.airjack/venv"
+if [ ! -d "\$VENV_PATH" ]; then
     echo "Setting up virtual environment..."
-    python3 -m venv "$CONFIG_DIR/venv"
-    source "$CONFIG_DIR/venv/bin/activate"
+    mkdir -p "\$(dirname "\$VENV_PATH")"
+    python3 -m venv "\$VENV_PATH"
+    source "\$VENV_PATH/bin/activate"
     python3 -m pip install prettytable pyfiglet
     deactivate
 fi
 
 # Activate virtual environment and run script
-source "$CONFIG_DIR/venv/bin/activate"
+source "\$VENV_PATH/bin/activate"
 python3 $INSTALL_DIR/airjack.py "\$@"
 deactivate
 EOF
