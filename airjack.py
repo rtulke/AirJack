@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WiFiCrackPy - A WiFi security testing tool for macOS
+AirJack - A WiFi security testing tool for macOS
 
 This tool is for educational purposes and security testing of YOUR OWN networks only.
 Unauthorized access to computer networks is illegal and punishable by law.
@@ -33,8 +33,8 @@ except ImportError as e:
 class ConfigManager:
     """Manages configuration file operations."""
     
-    DEFAULT_USER_CONFIG = "~/.wificrack.conf"
-    DEFAULT_SYSTEM_CONFIG = "/etc/wificrack.conf"
+    DEFAULT_USER_CONFIG = "~/.airjack.conf"
+    DEFAULT_SYSTEM_CONFIG = "/etc/airjack.conf"
     
     def __init__(self):
         """Initialize the config manager."""
@@ -162,7 +162,7 @@ class WiFiCracker:
         # Fancy banner
         if not self.args.no_banner:
             f = Figlet(font='big')
-            print('\n' + f.renderText('WiFiCrackPy'))
+            print('\n' + f.renderText('AirJack'))
             print("WiFi Security Testing Tool - For Educational Purposes Only")
             print("WARNING: Only use on networks you own or have permission to test!\n")
             
@@ -638,7 +638,7 @@ def setup_argparse() -> argparse.ArgumentParser:
         argparse.ArgumentParser: Configured argument parser
     """
     parser = argparse.ArgumentParser(
-        description="WiFi Security Testing Tool for macOS",
+        description="AirJack is a WiFi Security Testing Tool for macOS",
         epilog="WARNING: Only use on networks you own or have explicit permission to test!"
     )
     
