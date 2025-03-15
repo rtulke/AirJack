@@ -183,10 +183,11 @@ install_zizzania() {
             elif [ -f "Makefile" ]; then
                 print_message "Compiling zizzania..."
                 make
+                make install
                 print_success "Zizzania installed at ~/zizzania"
             elif [ -f "config.Makefile" ]; then
                 print_message "Using config.Makefile..."
-                cp config.Makefile Makefile
+                make -f config.Makefile
                 print_message "Compiling zizzania..."
                 make
                 print_success "Zizzania installed at ~/zizzania"
