@@ -180,17 +180,20 @@ install_zizzania() {
                 print_message "Compiling zizzania..."
                 make
                 print_success "Zizzania installed at ~/zizzania/build"
+                ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
             elif [ -f "Makefile" ]; then
                 print_message "Compiling zizzania..."
                 make
                 make install
                 print_success "Zizzania installed at ~/zizzania"
+                ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
             elif [ -f "config.Makefile" ]; then
                 print_message "Using config.Makefile..."
                 make -f config.Makefile
                 print_message "Compiling zizzania..."
                 make
                 print_success "Zizzania installed at ~/zizzania"
+                ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
             else
                 print_message "Manual build required. Attempting autogen/configure..."
                 if [ -f "autogen.sh" ]; then
@@ -198,10 +201,54 @@ install_zizzania() {
                     ./configure
                     make
                     print_success "Zizzania installed at ~/zizzania"
+                    ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
                 else
                     print_error "No build system detected. Check the README in ~/zizzania"
                     return 1
                 fi
+            fi
+            
+            # Configure sudo permissions for zizzania
+            if ask_continue "Configure sudo to allow passwordless execution of zizzania?"; then
+                print_message "Setting up sudo permissions for zizzania..."
+                
+                # Determine current username
+                CURRENT_USER=$(whoami)
+                
+                # Verify zizzania path
+                if [ ! -x "$ZIZZANIA_PATH" ]; then
+                    print_warning "Zizzania not found at $ZIZZANIA_PATH, trying to locate it..."
+                    if [ -x "$HOME/zizzania/build/zizzania" ]; then
+                        ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
+                    elif [ -x "$HOME/zizzania/src/zizzania" ]; then
+                        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+                    else
+                        print_error "Cannot find zizzania executable"
+                        return 1
+                    fi
+                fi
+                
+                print_message "Using zizzania path: $ZIZZANIA_PATH"
+                
+                # Create a temporary sudoers file
+                SUDOERS_TMP=$(mktemp)
+                echo "$CURRENT_USER ALL=(ALL) NOPASSWD: $ZIZZANIA_PATH" > "$SUDOERS_TMP"
+                
+                # Validate the syntax
+                visudo -cf "$SUDOERS_TMP"
+                if [ $? -ne 0 ]; then
+                    print_error "Invalid sudoers syntax"
+                    rm -f "$SUDOERS_TMP"
+                    return 1
+                fi
+                
+                # Add to sudoers.d directory
+                sudo mkdir -p /etc/sudoers.d
+                sudo cp "$SUDOERS_TMP" /etc/sudoers.d/zizzania
+                sudo chmod 0440 /etc/sudoers.d/zizzania
+                rm -f "$SUDOERS_TMP"
+                
+                print_success "Sudo permissions configured for $ZIZZANIA_PATH"
             fi
         else
             print_error "Failed to install zizzania."
