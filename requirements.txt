@@ -2,3 +2,4 @@ prettytable>=2.5.0
 pyfiglet>=0.8.post1
 pyobjc-framework-CoreWLAN>=9.0
 pyobjc-framework-CoreLocation>=9.0
+rich>=13.0.0
