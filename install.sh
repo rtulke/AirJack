@@ -308,7 +308,7 @@ install_script() {
         chmod +x "$TEMP_DIR/airjack.py"
         
         # Create a launcher script without .py extension
-        cat > "$TEMP_DIR/AirJack" << EOF
+        cat > "$TEMP_DIR/airjack" << EOF
 #!/bin/bash
 # Check if we need to set up virtual environment
 VENV_PATH="\$HOME/.airjack/venv"
@@ -328,13 +328,13 @@ deactivate
 EOF
         
         # Make the launcher executable
-        chmod +x "$TEMP_DIR/AirJack"
+        chmod +x "$TEMP_DIR/airjack"
         
         # Install both scripts
         sudo cp "$TEMP_DIR/airjack.py" "$INSTALL_DIR/"
-        sudo cp "$TEMP_DIR/AirJack" "$INSTALL_DIR/"
+        sudo cp "$TEMP_DIR/airjack" "$INSTALL_DIR/"
         
-        print_success "AirJack installed at $INSTALL_DIR/AirJack"
+        print_success "AirJack installed at $INSTALL_DIR/airjack"
     fi
 }
 
@@ -578,8 +578,8 @@ main() {
     
     echo ""
     print_success "AirJack installation complete!"
-    print_message "You can now run 'AirJack' from anywhere."
-    print_message "For help, run 'AirJack --help' or 'man airjack'"
+    print_message "You can now run 'airjack' from anywhere."
+    print_message "For help, run 'airjack --help' or 'man airjack'"
 }
 
 main "$@"
