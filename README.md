@@ -45,6 +45,8 @@ pip install -r requirements.txt
 ```bash
 git clone https://github.com/yourusername/AirJack.git
 cd AirJack
+python3 -m venv venv
+source venv/bin/activate
 ```
 
 2. Install Python dependencies:
