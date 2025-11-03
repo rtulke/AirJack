@@ -43,7 +43,7 @@ pip install -r requirements.txt
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/AirJack.git
+git clone https://github.com/rtulke/AirJack.git
 cd AirJack
 python3 -m venv venv
 source venv/bin/activate
@@ -71,7 +71,7 @@ make
 5. Setup System wide
 ```bash
 # Copy AirJack script to `/usr/local/bin/airjack`
-sudo cp AirJack.py /usr/local/bin/airjack
+sudo cp airjack.py /usr/local/bin/airjack
 sudo chmod +x /usr/local/bin/airjack
 
 # Install man page and updating mandb
@@ -82,9 +82,9 @@ sudo mandb
 $ airjack -h
 
 # Create default configuration (optional)
-$ airjack.py -C ~/.airjack.conf
+$ airjack -C ~/.airjack.conf
 
-# Uou can also try to edit the new generated configuration file
+# You can also try to edit the new generated configuration file
 $ vim ~/.airjack.conf
 
 # Try using the manual
@@ -97,7 +97,7 @@ $ man airjack
 ### Basic Usage
 
 ```bash
-python AirJack.py
+python airjack.py
 ```
 
 This will:
@@ -173,20 +173,155 @@ verbose = false
 ### Dictionary Attack on Specific Network
 
 ```bash
-python AirJack.py -n 1 -m 1 -w /path/to/wordlist.txt -o
+python airjack.py -n 1 -m 1 -w /path/to/wordlist.txt -o
 ```
 
 ### Brute Force with Pattern
 
 ```bash
-python AirJack.py -m 2 -p "?d?d?d?d?d?d?d?d" -o
+python airjack.py -m 2 -p "?d?d?d?d?d?d?d?d" -o
 ```
 
 ### Using Custom Configuration
 
 ```bash
-python AirJack.py -c /path/to/custom/config.conf
+python airjack.py -c /path/to/custom/config.conf
 ```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### 1. "Error: Missing required dependency: No module named 'CoreWLAN'"
+
+**Cause:** You're using a non-system Python (e.g., from Homebrew or python.org) which doesn't have access to macOS frameworks by default.
+
+**Solution Option 1** (Recommended): Use system Python
+```bash
+/usr/bin/python3 -m pip install prettytable pyfiglet
+/usr/bin/python3 airjack.py
+```
+
+**Solution Option 2**: Install PyObjC for your Python
+```bash
+pip3 install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+```
+
+---
+
+#### 2. Location Services Authorization Issues
+
+**Problem:** Location services popup doesn't appear, or authorization fails.
+
+**Solutions:**
+
+**For "Already Denied" errors:**
+1. Open **System Settings** → **Privacy & Security** → **Location Services**
+2. Find your terminal app (Terminal.app or iTerm2)
+3. Enable location services for it
+4. Restart AirJack
+
+**For macOS 15+ (Sequoia/Tahoe) where popup doesn't appear:**
+1. The popup may not appear automatically on newer macOS versions
+2. Manually enable location services:
+   - Go to **System Settings** → **Privacy & Security** → **Location Services**
+   - Look for your terminal app in the list
+   - If not listed, you may need to run the tool once to trigger the system to add it
+3. Try using **Terminal.app** instead of iTerm2 (sometimes works better)
+
+**For "NoneType" authorization errors:**
+- This has been fixed in the latest version
+- Update to the latest version from the main branch
+- The tool now handles None authorization status gracefully
+
+---
+
+#### 3. "Capture file not found: capture.hc22000"
+
+**Cause:** No valid WPA handshake was captured in the pcap file.
+
+**Solutions:**
+1. Ensure clients are connected to the target network (handshakes are captured during client connection)
+2. Enable deauthentication with `-d` flag to force reconnections:
+   ```bash
+   python airjack.py -d
+   ```
+3. Wait longer for clients to naturally connect/reconnect
+4. Use verbose mode to see more details:
+   ```bash
+   python airjack.py -v
+   ```
+5. Verify the capture file exists and has data:
+   ```bash
+   ls -lh capture.pcap
+   ```
+
+---
+
+#### 4. Networks Showing as `<hidden>` with No BSSID
+
+**Cause:** Some network entries return invalid BSSID data.
+
+**Status:** Fixed in the latest version (commit 221deb8)
+- Networks with invalid BSSID are now automatically skipped
+- Update to the latest version if you encounter this issue
+
+---
+
+#### 5. Permission Errors
+
+**Problem:** "Permission denied" when running tools.
+
+**Solution:**
+```bash
+# AirJack needs sudo for packet capture
+sudo python airjack.py
+```
+
+Make sure external tools are executable:
+```bash
+chmod +x ~/zizzania/src/zizzania
+```
+
+---
+
+#### 6. Tool Not Found Errors
+
+**Problem:** "hashcat not found", "zizzania not found", or "hcxpcapngtool not found"
+
+**Solution:**
+Check tool paths and install if missing:
+```bash
+# Check if tools are installed
+which hashcat
+which hcxpcapngtool
+
+# Install via Homebrew
+brew install hashcat hcxtools
+
+# Build zizzania
+git clone https://github.com/cyrus-and/zizzania.git ~/zizzania
+cd ~/zizzania && make
+```
+
+Or specify custom paths:
+```bash
+python airjack.py --hashcat-path /custom/path/hashcat \
+                  --zizzania-path /custom/path/zizzania
+```
+
+---
+
+### Getting Help
+
+If you encounter issues not covered here:
+1. Check existing [GitHub Issues](https://github.com/rtulke/AirJack/issues)
+2. Run with verbose flag `-v` for detailed output
+3. Open a new issue with:
+   - macOS version
+   - Python version (`python3 --version`)
+   - Complete error message
+   - Steps to reproduce
 
 ## License
 
