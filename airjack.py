@@ -877,37 +877,77 @@ class WiFiCracker:
             self.log.info(f"Using interface: {iface}")
 
             self.log.info(f"Initiating handshake capture on BSSID: {bssid}")
-            
+
             if self.args.dry_run:
                 self.log.info("DRY RUN: Would run zizzania capture (skipped)")
                 return True
-                
+
+            # Explain what's happening
+            print("\n" + "="*70)
+            print("Waiting for WPA Handshake")
+            print("="*70)
+            print("\nZizzania is now listening for a handshake. This happens when:")
+            print("  1. A client connects to the network")
+            print("  2. A client reconnects after disconnection")
+
+            if not self.args.deauth:
+                print("\n⚠️  Deauth is DISABLED (-n flag)")
+                print("  - Waiting passively for clients to connect naturally")
+                print("  - This can take 5-30 minutes or longer")
+                print("  - Recommendation: Enable deauth with -d flag for faster capture")
+            else:
+                print("\n✓ Deauth is ENABLED")
+                print("  - Actively disconnecting clients to force reconnection")
+                print("  - Handshake should be captured within 1-5 minutes")
+
+            print("\nPress Ctrl+C to abort capture")
+            print("="*70 + "\n")
+
             # Build the command
             cmd = [
-                'sudo', self.zizzania_path, 
-                '-i', iface, 
-                '-b', bssid, 
+                'sudo', self.zizzania_path,
+                '-i', iface,
+                '-b', bssid,
                 '-w', self.capture_file
             ]
-            
+
             if not self.args.deauth:
                 cmd.append('-n')
-                
+
+            # Don't use -q flag so we can see output
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
-            else:
-                cmd.append('-q')
-                
-            # Use zizzania to capture the handshake
-            process = subprocess.run(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            
-            if process.returncode != 0:
-                self.log.error(f"Zizzania error: {process.stderr}")
+
+            # Use Popen for live output
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                    universal_newlines=True
+                )
+
+                # Read output line by line
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        print(f"[zizzania] {line.rstrip()}")
+
+                # Wait for process to complete
+                return_code = process.wait()
+
+                if return_code != 0:
+                    self.log.error(f"Zizzania exited with code {return_code}")
+                    return False
+
+            except KeyboardInterrupt:
+                self.log.warning("\nCapture interrupted by user")
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
                 return False
 
             # Check if capture file was created
