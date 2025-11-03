@@ -150,7 +150,7 @@ install_tools() {
 install_zizzania() {
     if ask_continue "Install zizzania (required for handshake capture)?"; then
         print_message "Installing zizzania dependencies..."
-        brew install --formula cmake libpcap
+        brew install --formula cmake libpcap wget
         
         # Set up environment for zizzania compilation
         export LDFLAGS="-L$(brew --prefix libpcap)/lib"
