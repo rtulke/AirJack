@@ -1034,53 +1034,61 @@ class WiFiCracker:
     
     def run(self) -> int:
         """Run the main program flow.
-        
+
         Returns:
             int: Exit code (0 for success, non-zero for failure)
         """
-        # Request location permission for WiFi scanning
-        if not self.request_location_permission():
-            return 1
-            
-        # Scan for networks
-        if not self.scan_networks():
-            return 1
-            
-        # Select a network
-        network_idx = self.select_network()
-        if network_idx < 0:
-            return 1
-            
-        # Capture handshake
-        selected_network = self.networks[network_idx]
-        self.log.info(f"Selected network: {selected_network['ssid']} ({selected_network['bssid']})")
-        
-        if not self.capture_network(selected_network['bssid'], selected_network['channel_object']):
-            return 1
-            
-        # Crack the capture
-        if not self.crack_capture():
-            return 1
+        exit_code = 1  # Default to error
 
-        # Clean up if requested
-        self.cleanup()
+        try:
+            # Request location permission for WiFi scanning
+            if not self.request_location_permission():
+                return 1
 
-        # Ask user if they want to reconnect to the original network
-        if self.saved_ssid:
-            print("\n" + "="*70)
-            print("Reconnect to Original Network")
-            print("="*70)
-            print(f"\nYou were disconnected from: {self.saved_ssid}")
-            print("Would you like to reconnect now? [y/N]: ", end="", flush=True)
+            # Scan for networks
+            if not self.scan_networks():
+                return 1
 
-            try:
-                user_input = input().strip().lower()
-                if user_input == 'y':
-                    self.reconnect_to_network(self.saved_ssid)
-            except (KeyboardInterrupt, EOFError):
-                print("\nSkipping reconnection")
+            # Select a network
+            network_idx = self.select_network()
+            if network_idx < 0:
+                return 1
 
-        return 0
+            # Capture handshake
+            selected_network = self.networks[network_idx]
+            self.log.info(f"Selected network: {selected_network['ssid']} ({selected_network['bssid']})")
+
+            if not self.capture_network(selected_network['bssid'], selected_network['channel_object']):
+                return 1
+
+            # Crack the capture
+            if not self.crack_capture():
+                return 1
+
+            # Clean up if requested
+            self.cleanup()
+
+            exit_code = 0  # Success
+            return exit_code
+
+        finally:
+            # Always attempt reconnection if we disconnected
+            if self.saved_ssid:
+                print("\n" + "="*70)
+                print("Reconnect to Original Network")
+                print("="*70)
+                print(f"\nYou were disconnected from: {self.saved_ssid}")
+                print("Would you like to reconnect now? [Y/n]: ", end="", flush=True)
+
+                try:
+                    user_input = input().strip().lower()
+                    # Default to yes if user just presses Enter
+                    if user_input in ['', 'y', 'yes']:
+                        self.reconnect_to_network(self.saved_ssid)
+                    else:
+                        print("Skipping reconnection - you can manually reconnect via System Settings")
+                except (KeyboardInterrupt, EOFError):
+                    print("\nSkipping reconnection - you can manually reconnect via System Settings")
 
 
 def setup_argparse() -> argparse.ArgumentParser:
@@ -1102,37 +1110,37 @@ def setup_argparse() -> argparse.ArgumentParser:
                       help='Create a default configuration file at the specified path')
     
     # Tool paths
-    parser.add_argument('--hashcat-path', 
+    parser.add_argument('--hashcat-path', default=None,
                       help='Path to hashcat executable (default: from config or ~/hashcat/hashcat)')
-    parser.add_argument('--zizzania-path', 
+    parser.add_argument('--zizzania-path', default=None,
                       help='Path to zizzania executable (default: from config or ~/zizzania/src/zizzania)')
     
     # Network selection
-    parser.add_argument('-i', '--interface', 
+    parser.add_argument('-i', '--interface', default=None,
                       help='Network interface to use (default: from config or auto-detect)')
-    parser.add_argument('-n', '--network-index', type=int,
+    parser.add_argument('-n', '--network-index', type=int, default=None,
                       help='Select network by index (skips interactive selection)')
-    
+
     # Capture options
-    parser.add_argument('-d', '--deauth', action='store_true', 
+    parser.add_argument('-d', '--deauth', action='store_true',
                       help='Enable deauthentication (default: from config or disabled)')
-    parser.add_argument('--capture-file',
+    parser.add_argument('--capture-file', default=None,
                       help='Output capture file (default: from config or capture.pcap)')
-    parser.add_argument('--hashcat-file',
+    parser.add_argument('--hashcat-file', default=None,
                       help='Output hashcat file (default: from config or capture.hc22000)')
     
     # Cracking options
-    parser.add_argument('-m', '--mode', type=int, choices=[1, 2, 3],
+    parser.add_argument('-m', '--mode', type=int, choices=[1, 2, 3], default=None,
                       help='Attack mode: 1=Dictionary, 2=Brute-force, 3=Manual')
-    parser.add_argument('-w', '--wordlist', 
+    parser.add_argument('-w', '--wordlist', default=None,
                       help='Path to wordlist for dictionary attack')
-    parser.add_argument('-p', '--pattern', 
+    parser.add_argument('-p', '--pattern', default=None,
                       help='Pattern for brute-force attack')
     parser.add_argument('-o', '--optimize', action='store_true',
                       help='Enable hashcat optimization (default: from config or disabled)')
-    
+
     # Misc options
-    parser.add_argument('--auth-timeout', type=int,
+    parser.add_argument('--auth-timeout', type=int, default=None,
                       help='Timeout for location authorization (default: from config or 60 seconds)')
     parser.add_argument('--cleanup', action='store_true',
                       help='Clean up sensitive files after completion (default: from config or disabled)')
