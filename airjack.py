@@ -301,7 +301,8 @@ class WiFiCracker:
         self.setup_logging()
         self.setup_tools()
         self.networks = []
-        
+        self.saved_ssid = None  # Track disconnected network for reconnection
+
         # Initialize CoreWLAN
         self.cwlan_client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
         self.cwlan_interface = self.cwlan_client.interface()
@@ -550,7 +551,89 @@ class WiFiCracker:
                 self.log.info(f"Waiting for authorization... ({i}/{max_wait}s)")
 
         return False
-    
+
+    def disconnect_from_network(self) -> Tuple[bool, Optional[str]]:
+        """Disconnect from current WiFi network.
+
+        Returns:
+            Tuple[bool, Optional[str]]: (success, current_ssid)
+                - success: True if disconnected successfully
+                - current_ssid: Name of the network we were connected to (None if not connected)
+        """
+        try:
+            # Get current SSID before disconnecting
+            current_ssid = self.cwlan_interface.ssid()
+
+            if current_ssid:
+                self.log.info(f"Disconnecting from '{current_ssid}'...")
+            else:
+                self.log.info("Not currently connected to any network")
+                return True, None
+
+            # Disassociate from current network
+            self.cwlan_interface.disassociate()
+
+            # Wait a moment for disconnection to complete
+            sleep(1)
+
+            # Verify disconnection
+            new_ssid = self.cwlan_interface.ssid()
+            if new_ssid is None:
+                self.log.info("Successfully disconnected")
+                return True, current_ssid
+            else:
+                self.log.warning(f"Still connected to '{new_ssid}'")
+                return False, current_ssid
+
+        except Exception as e:
+            self.log.error(f"Error disconnecting: {e}")
+            return False, None
+
+    def reconnect_to_network(self, ssid: str) -> bool:
+        """Reconnect to a specific WiFi network.
+
+        Args:
+            ssid: Network name to reconnect to
+
+        Returns:
+            bool: True if reconnection successful, False otherwise
+        """
+        if not ssid:
+            return False
+
+        try:
+            self.log.info(f"Attempting to reconnect to '{ssid}'...")
+
+            # Scan for available networks
+            scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(ssid, None)
+
+            if error:
+                self.log.error(f"Error scanning for '{ssid}': {error}")
+                return False
+
+            if not scan_results or len(scan_results) == 0:
+                self.log.error(f"Network '{ssid}' not found")
+                return False
+
+            # Get the first matching network
+            target_network = scan_results[0]
+
+            # Try to associate with the network (no password, for open networks)
+            # For secured networks, macOS will use stored credentials from Keychain
+            success, error = self.cwlan_interface.associateToNetwork_password_error_(target_network, None, None)
+
+            if error:
+                self.log.warning(f"Could not reconnect to '{ssid}': {error}")
+                self.log.info("Please reconnect manually or check your Keychain credentials")
+                return False
+
+            self.log.info(f"Successfully reconnected to '{ssid}'")
+            return True
+
+        except Exception as e:
+            self.log.error(f"Exception during reconnection: {e}")
+            return False
+
     def colorize_rssi(self, rssi: int) -> str:
         """Colorize RSSI values based on signal strength.
         
@@ -572,7 +655,7 @@ class WiFiCracker:
     
     def scan_networks(self) -> bool:
         """Scan for WiFi networks and display them.
-        
+
         Returns:
             bool: True if successful, False otherwise
         """
@@ -582,8 +665,63 @@ class WiFiCracker:
         try:
             scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
             if error:
-                self.log.error(f"Error scanning for networks: {error}")
-                return False
+                error_str = str(error)
+
+                # Check for "Resource busy" error (NSPOSIXErrorDomain Code=16)
+                if "Code=16" in error_str or "Resource busy" in error_str:
+                    self.log.warning("WiFi interface is busy (likely connected to a network)")
+
+                    # Get current SSID
+                    current_ssid = self.cwlan_interface.ssid()
+                    if current_ssid:
+                        self.log.warning(f"Currently connected to: '{current_ssid}'")
+
+                    # Ask user if they want to disconnect
+                    print("\n" + "="*70)
+                    print("⚠️  WiFi Interface Busy")
+                    print("="*70)
+                    print("\nThe WiFi interface is currently in use.")
+                    if current_ssid:
+                        print(f"Connected to: {current_ssid}")
+                    print("\nTo scan for networks, we need to disconnect temporarily.")
+                    print("You can reconnect after the scan completes.")
+                    print("\nDisconnect and continue? [y/N]: ", end="", flush=True)
+
+                    try:
+                        user_input = input().strip().lower()
+                    except (KeyboardInterrupt, EOFError):
+                        print("\nAborted by user")
+                        return False
+
+                    if user_input == 'y':
+                        # Disconnect from network
+                        success, saved_ssid = self.disconnect_from_network()
+                        if not success:
+                            self.log.error("Failed to disconnect from network")
+                            return False
+
+                        # Store the SSID for later reconnection
+                        self.saved_ssid = saved_ssid
+
+                        # Wait a moment and retry scan
+                        sleep(2)
+                        self.log.info("Retrying network scan...")
+                        scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
+
+                        if error:
+                            self.log.error(f"Error scanning after disconnect: {error}")
+                            return False
+                    else:
+                        self.log.info("Scan cancelled by user")
+                        print("\nAlternatives:")
+                        print("1. Manually disconnect from WiFi in System Settings")
+                        print("2. Use 'networksetup -setairportpower <interface> off' to disable WiFi")
+                        print("3. Run this tool when not connected to any network")
+                        return False
+                else:
+                    # Different error
+                    self.log.error(f"Error scanning for networks: {error}")
+                    return False
         except Exception as e:
             self.log.error(f"Exception during network scan: {e}")
             return False
@@ -923,10 +1061,25 @@ class WiFiCracker:
         # Crack the capture
         if not self.crack_capture():
             return 1
-            
+
         # Clean up if requested
         self.cleanup()
-        
+
+        # Ask user if they want to reconnect to the original network
+        if self.saved_ssid:
+            print("\n" + "="*70)
+            print("Reconnect to Original Network")
+            print("="*70)
+            print(f"\nYou were disconnected from: {self.saved_ssid}")
+            print("Would you like to reconnect now? [y/N]: ", end="", flush=True)
+
+            try:
+                user_input = input().strip().lower()
+                if user_input == 'y':
+                    self.reconnect_to_network(self.saved_ssid)
+            except (KeyboardInterrupt, EOFError):
+                print("\nSkipping reconnection")
+
         return 0
 
 
