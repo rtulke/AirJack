@@ -828,14 +828,14 @@ class WiFiCracker:
     
     def select_network(self) -> int:
         """Let user select a network to crack.
-        
+
         Returns:
-            int: Index of selected network or -1 if canceled
+            int: Index of selected network, -1 if canceled, -2 if retry requested
         """
         if not self.networks:
             self.log.error("No networks available to select.")
             return -1
-            
+
         try:
             if self.args.network_index is not None:
                 x = int(self.args.network_index) - 1
@@ -843,16 +843,32 @@ class WiFiCracker:
                     self.log.error(f"Invalid network index: {x+1}. Must be between 1 and {len(self.networks)}")
                     return -1
             else:
-                x = int(input('\nSelect a network to crack (or 0 to cancel): ')) - 1
-                if x == -1:
+                user_input = input('\nSelect a network (1-{}, 0=cancel, r=rescan): '.format(len(self.networks))).strip().lower()
+
+                # Check for retry
+                if user_input == 'r':
+                    self.log.info("Rescanning for networks...")
+                    return -2
+
+                # Check for cancel
+                if user_input == '0':
                     self.log.info("Operation canceled by user.")
                     return -1
-                if x < 0 or x >= len(self.networks):
-                    self.log.error(f"Invalid selection. Must be between 1 and {len(self.networks)}")
+
+                # Try to parse as number
+                try:
+                    x = int(user_input) - 1
+                    if x < 0 or x >= len(self.networks):
+                        self.log.error(f"Invalid selection. Must be between 1 and {len(self.networks)}")
+                        return -1
+                    return x
+                except ValueError:
+                    self.log.error("Invalid input. Enter a number (1-{}), 'r' to rescan, or '0' to cancel.".format(len(self.networks)))
                     return -1
+
             return x
-        except ValueError:
-            self.log.error("Invalid input. Please enter a number.")
+        except (ValueError, EOFError, KeyboardInterrupt):
+            self.log.error("\nInvalid input or interrupted.")
             return -1
     
     def capture_network(self, bssid: str, channel) -> bool:
@@ -1212,14 +1228,23 @@ class WiFiCracker:
             if not self.request_location_permission():
                 return 1
 
-            # Scan for networks
-            if not self.scan_networks():
-                return 1
+            # Scan for networks (with retry loop)
+            while True:
+                if not self.scan_networks():
+                    return 1
 
-            # Select a network
-            network_idx = self.select_network()
-            if network_idx < 0:
-                return 1
+                # Select a network
+                network_idx = self.select_network()
+
+                if network_idx == -2:
+                    # User requested rescan
+                    continue
+                elif network_idx < 0:
+                    # User canceled
+                    return 1
+                else:
+                    # Valid selection, break out of loop
+                    break
 
             # Capture handshake
             selected_network = self.networks[network_idx]

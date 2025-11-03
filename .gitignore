@@ -8,3 +8,4 @@ capture.hc22000
 venv/
 __pycache__/
 *.pyc
+TODO.md
