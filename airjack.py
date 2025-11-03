@@ -15,6 +15,7 @@ import logging
 import json
 import configparser
 import shutil
+import platform
 from os.path import expanduser, join, exists, dirname
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
@@ -46,6 +47,50 @@ except ImportError as e:
         print("  pip3 install prettytable pyfiglet")
 
     sys.exit(1)
+
+
+# --- macOS 15+ Virtual Environment Warning ---
+def check_macos_venv_issue():
+    """Check if running in venv on macOS 15+ and warn user."""
+    # Check if we're on macOS
+    if platform.system() != 'Darwin':
+        return
+
+    # Check macOS version
+    try:
+        macos_version = platform.mac_ver()[0]
+        major_version = int(macos_version.split('.')[0])
+
+        # macOS 15+ (Sequoia)
+        if major_version >= 15:
+            # Check if running in virtual environment
+            in_venv = hasattr(sys, 'real_prefix') or (
+                hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix
+            )
+
+            if in_venv:
+                print("\n" + "="*70)
+                print("⚠️  WARNING: Virtual Environment on macOS 15+ Detected")
+                print("="*70)
+                print("\nmacOS 15+ has Location Services issues with virtual environments.")
+                print("You may see 'BSSID: None' for all networks.\n")
+                print("RECOMMENDED: Use system Python instead:")
+                print(f"  /usr/bin/python3 {' '.join(sys.argv)}")
+                print("\nPress Enter to continue anyway, or Ctrl+C to abort...")
+                print("="*70 + "\n")
+
+                try:
+                    input()
+                except KeyboardInterrupt:
+                    print("\nAborted by user.")
+                    sys.exit(0)
+    except Exception:
+        # If we can't determine version, skip warning
+        pass
+
+
+# Check for macOS 15+ venv issue early
+check_macos_venv_issue()
 
 
 # --- Tool Path Detection Helpers ---

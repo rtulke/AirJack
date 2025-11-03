@@ -1,0 +1,25 @@
+#!/bin/bash
+# AirJack launcher script
+# Automatically uses system Python on macOS 15+ to avoid Location Services issues
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AIRJACK_PY="$SCRIPT_DIR/airjack.py"
+
+# Check if we're on macOS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Get macOS version
+    MACOS_VERSION=$(sw_vers -productVersion | cut -d. -f1)
+
+    # On macOS 15+, prefer system Python
+    if [[ $MACOS_VERSION -ge 15 ]]; then
+        # Check if system Python exists
+        if command -v /usr/bin/python3 &> /dev/null; then
+            echo "macOS $MACOS_VERSION detected - using system Python for Location Services compatibility"
+            exec /usr/bin/python3 "$AIRJACK_PY" "$@"
+        fi
+    fi
+fi
+
+# Fallback to regular Python
+exec python3 "$AIRJACK_PY" "$@"

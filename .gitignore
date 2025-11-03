@@ -5,3 +5,6 @@ airjack2.py
 *.pcapng
 test_*.py
 capture.hc22000
+venv/
+__pycache__/
+*.pyc
