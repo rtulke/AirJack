@@ -25,8 +25,25 @@ try:
     from pyfiglet import Figlet
 except ImportError as e:
     print(f"Error: Missing required dependency: {e}")
-    print("Please install required packages with: pip install prettytable pyfiglet")
-    print("Note: CoreWLAN and CoreLocation are part of macOS and cannot be pip-installed.")
+    print("\n=== Troubleshooting Guide ===")
+
+    if "CoreWLAN" in str(e) or "CoreLocation" in str(e):
+        print("\nCoreWLAN and CoreLocation are macOS system frameworks.")
+        print("They cannot be installed via pip.")
+        print("\nPossible causes:")
+        print("1. You are using a non-system Python (e.g., from python.org or Homebrew)")
+        print("2. You are not running on macOS")
+        print("\nSolution:")
+        print("- Use the system Python: /usr/bin/python3")
+        print("- Or install PyObjC to access macOS frameworks:")
+        print("  pip3 install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation")
+        print("\nExample:")
+        print("  /usr/bin/python3 -m pip install prettytable pyfiglet")
+        print("  /usr/bin/python3 airjack.py")
+    else:
+        print("\nPlease install required packages with:")
+        print("  pip3 install prettytable pyfiglet")
+
     sys.exit(1)
 
 
@@ -242,7 +259,7 @@ class WiFiCracker:
     
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
-        
+
         Returns:
             bool: True if authorized, False otherwise
         """
@@ -252,27 +269,67 @@ class WiFiCracker:
         # Check if location services are enabled
         if not location_manager.locationServicesEnabled():
             self.log.error("Location services are disabled. Please enable them and try again.")
+            self.log.error("Go to: System Settings > Privacy & Security > Location Services")
+            return False
+
+        # Check current authorization status before requesting
+        current_status = location_manager.authorizationStatus()
+        self.log.debug(f"Current authorization status: {current_status}")
+
+        # If already authorized, return immediately
+        if current_status in [3, 4]:  # 3 = always, 4 = when in use
+            self.log.info("Already authorized for location services.")
+            return True
+
+        # If denied or restricted, inform user
+        if current_status == 2:  # denied
+            self.log.error("Location services access was previously denied.")
+            self.log.error("Please enable it in: System Settings > Privacy & Security > Location Services")
+            self.log.error("Look for your terminal app (Terminal, iTerm2, etc.) and enable it.")
+            return False
+
+        if current_status == 1:  # restricted
+            self.log.error("Location services access is restricted (possibly by parental controls).")
             return False
 
         # Request authorization for location services
         self.log.info("Requesting authorization for location services (required for WiFi scanning)...")
+        self.log.info("A permission popup should appear. If it doesn't appear within 10 seconds:")
+        self.log.info("1. Check System Settings > Privacy & Security > Location Services")
+        self.log.info("2. Look for your terminal app and ensure it's enabled")
+        self.log.info("3. On macOS 15+, you may need to manually add your terminal app to Location Services")
         location_manager.requestWhenInUseAuthorization()
 
         # Wait for location services to be authorized
         max_wait = self.args.auth_timeout
         for i in range(max_wait):
             authorization_status = location_manager.authorizationStatus()
+
+            # Handle None case (can happen on some macOS versions)
+            if authorization_status is None:
+                self.log.warning("Authorization status returned None, attempting to continue...")
+                # Try one more time after a short delay
+                sleep(2)
+                authorization_status = location_manager.authorizationStatus()
+                if authorization_status is None:
+                    self.log.error("Cannot determine authorization status. Please check:")
+                    self.log.error("1. System Settings > Privacy & Security > Location Services")
+                    self.log.error("2. Ensure your terminal app (Terminal/iTerm2) has Location Services enabled")
+                    self.log.error("3. Try running from a different terminal or with different permissions")
+                    return False
+
             # 0 = not determined, 1 = restricted, 2 = denied, 3 = authorized always, 4 = authorized when in use
             if authorization_status in [3, 4]:
                 self.log.info("Received authorization, continuing...")
                 return True
             if i == max_wait - 1:
                 self.log.error("Unable to obtain authorization, exiting...")
+                self.log.error(f"Final authorization status: {authorization_status}")
                 return False
             sleep(1)
             if i % 5 == 0:
                 self.log.info(f"Waiting for authorization... ({i}/{max_wait}s)")
-                
+
         return False
     
     def colorize_rssi(self, rssi: int) -> str:
@@ -322,10 +379,16 @@ class WiFiCracker:
                     # Store relevant network information
                     security_match = re.search(r'security=(.*?)(,|$)', str(result))
                     security = security_match.group(1) if security_match else "Unknown"
-                    
+
+                    # Get BSSID and skip if None (invalid network entry)
+                    bssid = result.bssid()
+                    if bssid is None:
+                        self.log.debug(f"Skipping network with no BSSID (SSID: {result.ssid()})")
+                        continue
+
                     network_info = {
                         'ssid': result.ssid() or "<hidden>",
-                        'bssid': result.bssid(),
+                        'bssid': bssid,
                         'rssi': result.rssiValue(),
                         'channel_object': result.wlanChannel(),
                         'channel_number': result.channel(),
@@ -441,24 +504,41 @@ class WiFiCracker:
                 self.log.error(f"Zizzania error: {process.stderr}")
                 return False
 
+            # Check if capture file was created
+            if not exists(self.capture_file):
+                self.log.error(f"Capture file was not created: {self.capture_file}")
+                self.log.error("This may indicate that no handshake was captured.")
+                return False
+
             # Convert the capture to hashcat format
             self.log.info("Converting capture to hashcat format...")
             conv_cmd = ['hcxpcapngtool', '-o', self.hashcat_file, self.capture_file]
-            
+
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(conv_cmd)}")
-                
+
             process = subprocess.run(
                 conv_cmd,
-                stdout=subprocess.PIPE, 
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True
             )
-            
+
             if process.returncode != 0:
                 self.log.error(f"Conversion error: {process.stderr}")
                 return False
-                
+
+            # Verify the hashcat file was created
+            if not exists(self.hashcat_file):
+                self.log.error(f"Hashcat file was not created: {self.hashcat_file}")
+                self.log.error("Possible reasons:")
+                self.log.error("1. No valid handshake was captured in the pcap file")
+                self.log.error("2. The capture file format is incorrect")
+                self.log.error("3. hcxpcapngtool encountered an error")
+                if self.args.verbose:
+                    self.log.error(f"hcxpcapngtool output: {process.stdout}")
+                return False
+
             self.log.info("Handshake ready for cracking.")
             return True
             
