@@ -221,13 +221,49 @@ pip3 install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
 3. Enable location services for it
 4. Restart AirJack
 
-**For macOS 15+ (Sequoia/Tahoe) where popup doesn't appear:**
-1. The popup may not appear automatically on newer macOS versions
-2. Manually enable location services:
-   - Go to **System Settings** → **Privacy & Security** → **Location Services**
-   - Look for your terminal app in the list
-   - If not listed, you may need to run the tool once to trigger the system to add it
-3. Try using **Terminal.app** instead of iTerm2 (sometimes works better)
+**For macOS 15+ (Sequoia) - IMPORTANT:**
+
+macOS 15 has significant changes to Location Services that affect Python scripts:
+
+**Problem:** Networks show with `BSSID: None` even though Python has Location Services enabled.
+
+**Root Cause:** When using a Python virtual environment (venv), the Python process runs under your terminal app (iTerm2, Terminal.app, etc.), NOT as the Python shown in Location Services. macOS 15 removed the "+" button to manually add apps, making it impossible to add terminal apps to Location Services.
+
+**Solution: Use System Python**
+```bash
+# Instead of using venv Python:
+source venv/bin/activate
+python airjack.py  # ❌ Won't work - runs under terminal, no Location Services
+
+# Use system Python directly:
+/usr/bin/python3 airjack.py  # ✅ Works - uses Python's Location Services permission
+```
+
+**Setup for System Python:**
+```bash
+# Install dependencies for system Python (one-time)
+/usr/bin/python3 -m pip install --user prettytable pyfiglet
+
+# Run airjack with system Python
+/usr/bin/python3 airjack.py
+```
+
+**Why This Works:**
+- System Python (`/usr/bin/python3`) has its own entry in Location Services
+- Virtual environment Python inherits terminal app's permissions (which don't exist)
+- Using system Python bypasses the terminal app permission requirement
+
+**Alternative (if system Python doesn't work):**
+Try resetting Location Services for your terminal:
+```bash
+# For iTerm2:
+killall iTerm2
+tccutil reset LocationServices com.googlecode.iterm2
+
+# For Terminal.app:
+killall Terminal
+tccutil reset LocationServices com.apple.Terminal
+```
 
 **For "NoneType" authorization errors:**
 - This has been fixed in the latest version
