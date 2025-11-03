@@ -397,19 +397,22 @@ class WiFiCracker:
         current_status = location_manager.authorizationStatus()
         self.log.debug(f"Current authorization status: {current_status}")
 
-        # If already authorized, return immediately
-        if current_status in [3, 4]:  # 3 = always, 4 = when in use
+        # Handle None case early (can happen on some macOS versions)
+        if current_status is None:
+            self.log.warning("Unable to determine current authorization status (returned None)")
+            self.log.warning("This may indicate a macOS system issue. Proceeding with authorization request...")
+            # Don't return False here, continue with the request
+        elif current_status in [3, 4]:  # 3 = always, 4 = when in use
+            # If already authorized, return immediately
             self.log.info("Already authorized for location services.")
             return True
-
-        # If denied or restricted, inform user
-        if current_status == 2:  # denied
+        elif current_status == 2:  # denied
+            # If denied, inform user
             self.log.error("Location services access was previously denied.")
             self.log.error("Please enable it in: System Settings > Privacy & Security > Location Services")
             self.log.error("Look for your terminal app (Terminal, iTerm2, etc.) and enable it.")
             return False
-
-        if current_status == 1:  # restricted
+        elif current_status == 1:  # restricted
             self.log.error("Location services access is restricted (possibly by parental controls).")
             return False
 
@@ -422,7 +425,7 @@ class WiFiCracker:
         location_manager.requestWhenInUseAuthorization()
 
         # Wait for location services to be authorized
-        max_wait = self.args.auth_timeout
+        max_wait = self.args.auth_timeout if self.args.auth_timeout is not None else 60
         for i in range(max_wait):
             authorization_status = location_manager.authorizationStatus()
 
