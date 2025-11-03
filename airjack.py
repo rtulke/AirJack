@@ -323,14 +323,22 @@ class WiFiCracker:
         # Helper to convert string to boolean
         def str_to_bool(s: str) -> bool:
             return s.lower() in ('true', 'yes', '1', 'on')
-        
-        # Only set if not provided via command line
+
+        # Set defaults for required arguments (always needed, even without config)
+        if self.args.capture_file is None:
+            self.args.capture_file = self.config.get('capture_file', "capture.pcap") if self.config else "capture.pcap"
+
+        if self.args.hashcat_file is None:
+            self.args.hashcat_file = self.config.get('hashcat_file', "capture.hc22000") if self.config else "capture.hc22000"
+
+        if self.args.auth_timeout is None:
+            if self.config and 'auth_timeout' in self.config:
+                self.args.auth_timeout = int(self.config['auth_timeout'])
+            else:
+                self.args.auth_timeout = 60  # Default timeout
+
+        # Only apply config if available
         if self.config:
-            if not hasattr(self.args, 'capture_file') or self.args.capture_file is None:
-                self.args.capture_file = self.config.get('capture_file', "capture.pcap")
-                
-            if not hasattr(self.args, 'hashcat_file') or self.args.hashcat_file is None:
-                self.args.hashcat_file = self.config.get('hashcat_file', "capture.hc22000")
                 
             if not hasattr(self.args, 'hashcat_path') or self.args.hashcat_path is None:
                 self.args.hashcat_path = self.config.get('hashcat_path', None)
@@ -340,11 +348,7 @@ class WiFiCracker:
                 
             if not hasattr(self.args, 'interface') or self.args.interface is None:
                 self.args.interface = self.config.get('interface', None)
-                
-            if not hasattr(self.args, 'auth_timeout') or self.args.auth_timeout is None:
-                timeout = self.config.get('auth_timeout', '60')
-                self.args.auth_timeout = int(timeout)
-                
+
             # Boolean flags (only set to True if in config and not set via command line)
             if not self.args.cleanup and 'cleanup' in self.config:
                 self.args.cleanup = str_to_bool(self.config['cleanup'])
@@ -603,6 +607,10 @@ class WiFiCracker:
 
         try:
             self.log.info(f"Attempting to reconnect to '{ssid}'...")
+
+            # Wait a moment for interface to be ready for reconnection
+            # (after capture operations, interface needs time to stabilize)
+            sleep(2)
 
             # Scan for available networks
             scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(ssid, None)
