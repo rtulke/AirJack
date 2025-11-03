@@ -615,8 +615,16 @@ class WiFiCracker:
                 self.log.error(f"Network '{ssid}' not found")
                 return False
 
-            # Get the first matching network
-            target_network = scan_results[0]
+            # scan_results is an NSSet, convert to list to access elements
+            # Or just get any network from the set since they all have the same SSID
+            target_network = None
+            for network in scan_results:
+                target_network = network
+                break  # Get first network from set
+
+            if not target_network:
+                self.log.error(f"Could not retrieve network object for '{ssid}'")
+                return False
 
             # Try to associate with the network (no password, for open networks)
             # For secured networks, macOS will use stored credentials from Keychain
@@ -703,13 +711,46 @@ class WiFiCracker:
                         # Store the SSID for later reconnection
                         self.saved_ssid = saved_ssid
 
-                        # Wait a moment and retry scan
-                        sleep(2)
-                        self.log.info("Retrying network scan...")
-                        scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
+                        # Wait longer for interface to become free (macOS needs time to release the interface)
+                        self.log.info("Waiting for interface to become available...")
+                        sleep(5)
+
+                        # Try scanning with retries
+                        max_retries = 3
+                        scan_results = None
+                        error = None
+
+                        for retry in range(max_retries):
+                            if retry > 0:
+                                self.log.info(f"Retry {retry}/{max_retries-1}...")
+                                sleep(3)
+
+                            scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
+
+                            if error:
+                                error_str = str(error)
+                                if "Code=16" in error_str or "Resource busy" in error_str:
+                                    # Still busy, try again
+                                    if retry < max_retries - 1:
+                                        continue
+                                    else:
+                                        self.log.error("Interface still busy after disconnect and retries")
+                                        self.log.error("This may be a macOS system issue.")
+                                        self.log.error("\nWorkaround:")
+                                        self.log.error("1. Manually turn off WiFi in System Settings")
+                                        self.log.error("2. Wait 5 seconds")
+                                        self.log.error("3. Turn WiFi back on")
+                                        self.log.error("4. Run this tool again")
+                                        return False
+                                else:
+                                    # Different error
+                                    self.log.error(f"Error scanning after disconnect: {error}")
+                                    return False
+                            else:
+                                # Success!
+                                break
 
                         if error:
-                            self.log.error(f"Error scanning after disconnect: {error}")
                             return False
                     else:
                         self.log.info("Scan cancelled by user")
