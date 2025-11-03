@@ -96,8 +96,18 @@ $ man airjack
 
 ### Basic Usage
 
+**Recommended (uses launcher script):**
 ```bash
-python airjack.py
+./airjack
+```
+
+**Or directly with Python:**
+```bash
+# On macOS 15+ (Sequoia), use system Python:
+/usr/bin/python3 airjack.py
+
+# On older macOS or if not using venv:
+python3 airjack.py
 ```
 
 This will:
@@ -105,6 +115,8 @@ This will:
 2. Allow you to select a target network
 3. Capture a handshake
 4. Provide options for cracking the handshake
+
+**Note:** The `./airjack` launcher automatically selects the correct Python version for your system, especially important on macOS 15+.
 
 ### Command Line Options
 
@@ -173,19 +185,22 @@ verbose = false
 ### Dictionary Attack on Specific Network
 
 ```bash
-python airjack.py -n 1 -m 1 -w /path/to/wordlist.txt -o
+./airjack -n 1 -m 1 -w /path/to/wordlist.txt -o
+
+# Or with Python directly:
+/usr/bin/python3 airjack.py -n 1 -m 1 -w /path/to/wordlist.txt -o
 ```
 
 ### Brute Force with Pattern
 
 ```bash
-python airjack.py -m 2 -p "?d?d?d?d?d?d?d?d" -o
+./airjack -m 2 -p "?d?d?d?d?d?d?d?d" -o
 ```
 
 ### Using Custom Configuration
 
 ```bash
-python airjack.py -c /path/to/custom/config.conf
+./airjack -c /path/to/custom/config.conf
 ```
 
 ## 🔧 Troubleshooting
@@ -196,13 +211,19 @@ python airjack.py -c /path/to/custom/config.conf
 
 **Cause:** You're using a non-system Python (e.g., from Homebrew or python.org) which doesn't have access to macOS frameworks by default.
 
-**Solution Option 1** (Recommended): Use system Python
+**Solution Option 1** (Recommended): Use the launcher script
+```bash
+./airjack
+```
+The launcher automatically handles Python selection.
+
+**Solution Option 2**: Use system Python directly
 ```bash
 /usr/bin/python3 -m pip install prettytable pyfiglet
 /usr/bin/python3 airjack.py
 ```
 
-**Solution Option 2**: Install PyObjC for your Python
+**Solution Option 3**: Install PyObjC for your Python
 ```bash
 pip3 install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
 ```
@@ -229,7 +250,14 @@ macOS 15 has significant changes to Location Services that affect Python scripts
 
 **Root Cause:** When using a Python virtual environment (venv), the Python process runs under your terminal app (iTerm2, Terminal.app, etc.), NOT as the Python shown in Location Services. macOS 15 removed the "+" button to manually add apps, making it impossible to add terminal apps to Location Services.
 
-**Solution: Use System Python**
+**Solution 1: Use the Launcher Script (Easiest)**
+```bash
+./airjack  # ✅ Automatically uses system Python on macOS 15+
+```
+
+The launcher script automatically detects your macOS version and uses the appropriate Python.
+
+**Solution 2: Use System Python Directly**
 ```bash
 # Instead of using venv Python:
 source venv/bin/activate
@@ -243,9 +271,6 @@ python airjack.py  # ❌ Won't work - runs under terminal, no Location Services
 ```bash
 # Install dependencies for system Python (one-time)
 /usr/bin/python3 -m pip install --user prettytable pyfiglet
-
-# Run airjack with system Python
-/usr/bin/python3 airjack.py
 ```
 
 **Why This Works:**
@@ -280,12 +305,12 @@ tccutil reset LocationServices com.apple.Terminal
 1. Ensure clients are connected to the target network (handshakes are captured during client connection)
 2. Enable deauthentication with `-d` flag to force reconnections:
    ```bash
-   python airjack.py -d
+   ./airjack -d
    ```
 3. Wait longer for clients to naturally connect/reconnect
 4. Use verbose mode to see more details:
    ```bash
-   python airjack.py -v
+   ./airjack -v
    ```
 5. Verify the capture file exists and has data:
    ```bash
@@ -311,7 +336,9 @@ tccutil reset LocationServices com.apple.Terminal
 **Solution:**
 ```bash
 # AirJack needs sudo for packet capture
-sudo python airjack.py
+sudo ./airjack
+# Or with Python directly:
+sudo /usr/bin/python3 airjack.py
 ```
 
 Make sure external tools are executable:
@@ -342,8 +369,8 @@ cd ~/zizzania && make
 
 Or specify custom paths:
 ```bash
-python airjack.py --hashcat-path /custom/path/hashcat \
-                  --zizzania-path /custom/path/zizzania
+./airjack --hashcat-path /custom/path/hashcat \
+          --zizzania-path /custom/path/zizzania
 ```
 
 ---
