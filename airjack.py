@@ -903,22 +903,25 @@ class WiFiCracker:
             print("\nPress Ctrl+C to abort capture")
             print("="*70 + "\n")
 
-            # Build the command
+            # Build the command with verbose output
             cmd = [
                 'sudo', self.zizzania_path,
                 '-i', iface,
                 '-b', bssid,
-                '-w', self.capture_file
+                '-w', self.capture_file,
+                '-v'  # Always use verbose to see deauth attempts
             ]
 
             if not self.args.deauth:
                 cmd.append('-n')
 
-            # Don't use -q flag so we can see output
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
 
-            # Use Popen for live output
+            # Use Popen for live output with timeout
+            import time
+            import signal
+
             try:
                 process = subprocess.Popen(
                     cmd,
@@ -929,10 +932,85 @@ class WiFiCracker:
                     universal_newlines=True
                 )
 
-                # Read output line by line
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        print(f"[zizzania] {line.rstrip()}")
+                # Timeout: 10 minutes (600 seconds)
+                timeout_seconds = 600
+                start_time = time.time()
+
+                # Track what we've seen
+                clients_seen = set()
+                deauth_sent = 0
+                handshake_found = False
+
+                print(f"[INFO] Capture timeout: {timeout_seconds // 60} minutes\n")
+
+                # Read output line by line with timeout check
+                while True:
+                    # Check timeout
+                    elapsed = time.time() - start_time
+                    if elapsed > timeout_seconds:
+                        print(f"\n[TIMEOUT] Capture exceeded {timeout_seconds // 60} minutes")
+                        print("\n" + "="*70)
+                        print("Diagnostics:")
+                        print("="*70)
+                        print(f"  • Clients discovered: {len(clients_seen)}")
+                        print(f"  • Deauth frames sent: {deauth_sent}")
+                        print(f"  • Handshake captured: {handshake_found}")
+
+                        if deauth_sent == 0 and self.args.deauth:
+                            print("\n⚠️  WARNING: No deauth frames were sent!")
+                            print("  Possible causes:")
+                            print("  1. Zizzania lacks permissions for packet injection")
+                            print("  2. macOS interface doesn't support injection")
+                            print("  3. Clients are not responding to deauth")
+                        elif len(clients_seen) == 0:
+                            print("\n⚠️  WARNING: No clients discovered!")
+                            print("  The network may have no active clients")
+                        else:
+                            print("\n⚠️  Clients seen but no handshake captured")
+                            print("  Possible causes:")
+                            print("  1. Clients are not reconnecting")
+                            print("  2. Handshake packets are being missed")
+                            print("  3. Network uses WPA3-only (not supported)")
+
+                        print("\nRecommendations:")
+                        print("  • Try again during peak hours (more client activity)")
+                        print("  • Ensure you're close to the access point")
+                        print("  • Check if network is WPA2 (not WPA3-only)")
+                        print("="*70)
+
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                        return False
+
+                    # Read line with small timeout
+                    line = process.stdout.readline()
+                    if not line:
+                        # Check if process ended
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.1)
+                        continue
+
+                    line = line.rstrip()
+
+                    # Always display output
+                    print(f"[zizzania] {line}")
+
+                    # Parse zizzania output for diagnostics
+                    if 'New client' in line:
+                        # Extract client MAC
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            client_mac = parts[3]
+                            clients_seen.add(client_mac)
+                    elif 'Disassoc' in line or 'Deauth' in line:
+                        deauth_sent += 1
+                    elif 'handshake' in line.lower() or 'EAPOL' in line:
+                        handshake_found = True
+                        print("\n✓ HANDSHAKE CAPTURED! Finishing capture...")
 
                 # Wait for process to complete
                 return_code = process.wait()
