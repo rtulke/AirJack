@@ -843,17 +843,17 @@ class WiFiCracker:
                     self.log.error(f"Invalid network index: {x+1}. Must be between 1 and {len(self.networks)}")
                     return -1
             else:
-                user_input = input('\nSelect a network (1-{}, 0=cancel, r=rescan): '.format(len(self.networks))).strip().lower()
+                user_input = input('\nSelect a network (1-{}, r=rescan, q=quit): '.format(len(self.networks))).strip().lower()
+
+                # Check for quit
+                if user_input == 'q':
+                    self.log.info("Operation canceled by user.")
+                    return -1
 
                 # Check for retry
                 if user_input == 'r':
                     self.log.info("Rescanning for networks...")
                     return -2
-
-                # Check for cancel
-                if user_input == '0':
-                    self.log.info("Operation canceled by user.")
-                    return -1
 
                 # Try to parse as number
                 try:
@@ -863,7 +863,7 @@ class WiFiCracker:
                         return -1
                     return x
                 except ValueError:
-                    self.log.error("Invalid input. Enter a number (1-{}), 'r' to rescan, or '0' to cancel.".format(len(self.networks)))
+                    self.log.error("Invalid input. Enter a number (1-{}), 'r' to rescan, or 'q' to quit.".format(len(self.networks)))
                     return -1
 
             return x
