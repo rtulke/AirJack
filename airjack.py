@@ -428,6 +428,7 @@ class WiFiCracker:
         max_wait = self.args.auth_timeout if self.args.auth_timeout is not None else 60
         for i in range(max_wait):
             authorization_status = location_manager.authorizationStatus()
+            self.log.debug(f"Loop {i}: authorization_status = {authorization_status}")
 
             # Handle None case (can happen on some macOS versions)
             if authorization_status is None:
@@ -444,14 +445,63 @@ class WiFiCracker:
 
             # 0 = not determined, 1 = restricted, 2 = denied, 3 = authorized always, 4 = authorized when in use
             if authorization_status in [3, 4]:
-                self.log.info("Received authorization, continuing...")
-                return True
-            if i == max_wait - 1:
-                self.log.error("Unable to obtain authorization, exiting...")
-                self.log.error(f"Final authorization status: {authorization_status}")
+                # macOS sometimes reports status 3 or 4 even when permission wasn't really granted
+                # Verify by attempting to scan and check if we get real BSSIDs
+                self.log.debug("Status reports authorized, verifying with actual scan...")
+                test_results, test_error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
+                if test_results and len(test_results) > 0:
+                    # Check if we get real BSSIDs
+                    has_real_bssid = False
+                    for net in test_results:
+                        if net.bssid() is not None:
+                            has_real_bssid = True
+                            break
+
+                    if has_real_bssid:
+                        self.log.info("Received authorization, continuing...")
+                        return True
+                    else:
+                        self.log.warning(f"Status shows {authorization_status} but no BSSIDs available")
+                        self.log.warning("Location Services permission may not be properly granted")
+                        # Continue waiting
+                else:
+                    self.log.debug("Test scan returned no networks, continuing to wait...")
+
+
+            # Check if denied during wait
+            if authorization_status == 2:
+                self.log.error("Location services access was denied during authorization request.")
+                self.log.error("Please enable it in: System Settings > Privacy & Security > Location Services")
                 return False
+
+            if i == max_wait - 1:
+                # Timeout reached - provide detailed instructions
+                if authorization_status in [0, 3, 4]:
+                    # Status 0 = not determined, or 3/4 but no real BSSIDs available
+                    self.log.error("Authorization timeout - Location Services are not working properly.")
+                    self.log.error("")
+                    self.log.error("Location Services are required to access WiFi BSSID information.")
+                    self.log.error("Without proper authorization, networks will show with BSSID: None")
+                    self.log.error("")
+                    self.log.error("Manual Setup Required:")
+                    self.log.error("1. Open System Settings > Privacy & Security > Location Services")
+                    self.log.error("2. Ensure Location Services is enabled (toggle at top)")
+                    self.log.error("3. Scroll down and find your terminal app (Terminal.app, iTerm2, Warp, etc.)")
+                    self.log.error("4. If your app is NOT in the list:")
+                    self.log.error("   - Click the '+' button")
+                    self.log.error("   - Navigate to /Applications/Utilities/")
+                    self.log.error("   - Select your terminal app (e.g., Terminal.app)")
+                    self.log.error("5. If your app IS in the list, enable the checkbox next to it")
+                    self.log.error("6. Restart this tool")
+                    self.log.error("")
+                    self.log.error(f"Note: macOS authorization status reported as {authorization_status}, but BSSIDs unavailable")
+                else:
+                    self.log.error("Unable to obtain authorization, exiting...")
+                    self.log.error(f"Final authorization status: {authorization_status}")
+                return False
+
             sleep(1)
-            if i % 5 == 0:
+            if i % 5 == 0 and i > 0:
                 self.log.info(f"Waiting for authorization... ({i}/{max_wait}s)")
 
         return False
