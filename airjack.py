@@ -14,6 +14,7 @@ import sys
 import logging
 import json
 import configparser
+import shutil
 from os.path import expanduser, join, exists, dirname
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
@@ -47,6 +48,90 @@ except ImportError as e:
     sys.exit(1)
 
 
+# --- Tool Path Detection Helpers ---
+
+def find_tool_path(tool_name: str, manual_locations: List[str] = None) -> Optional[str]:
+    """
+    Smart detection for external tool paths.
+
+    Checks in order:
+    1. System PATH (via which/shutil.which) - Homebrew installations
+    2. Manual build locations (~/tool_name/...)
+    3. Common macOS locations
+
+    Args:
+        tool_name: Name of the tool (e.g., 'hashcat', 'zizzania')
+        manual_locations: Optional list of additional paths to check
+
+    Returns:
+        Full path to tool if found, None otherwise
+    """
+    # 1. Check system PATH first (Homebrew installations)
+    path_result = shutil.which(tool_name)
+    if path_result and os.path.isfile(path_result) and os.access(path_result, os.X_OK):
+        return path_result
+
+    # 2. Check manual build locations
+    manual_paths = manual_locations or []
+
+    # Add common manual build locations
+    if tool_name == 'hashcat':
+        manual_paths.extend([
+            join(expanduser('~'), 'hashcat', 'hashcat'),
+            join(expanduser('~'), 'hashcat', 'bin', 'hashcat'),
+            '/usr/local/bin/hashcat',
+        ])
+    elif tool_name == 'zizzania':
+        manual_paths.extend([
+            join(expanduser('~'), 'zizzania', 'build', 'zizzania'),
+            join(expanduser('~'), 'zizzania', 'src', 'zizzania'),
+            join(expanduser('~'), 'zizzania', 'zizzania'),
+            '/usr/local/bin/zizzania',
+        ])
+    elif tool_name == 'hcxpcapngtool':
+        manual_paths.extend([
+            '/usr/local/bin/hcxpcapngtool',
+        ])
+
+    # 3. Check each manual location
+    for path in manual_paths:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+
+    # 4. Common Homebrew locations (fallback if shutil.which didn't find it)
+    homebrew_locations = [
+        '/opt/homebrew/bin',  # Apple Silicon
+        '/usr/local/bin',     # Intel Mac
+    ]
+
+    for brew_dir in homebrew_locations:
+        full_path = join(brew_dir, tool_name)
+        if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
+            return full_path
+
+    return None
+
+
+def get_default_tool_paths() -> Dict[str, str]:
+    """
+    Get default paths for all required tools.
+
+    Returns:
+        Dictionary with detected or default paths for each tool
+    """
+    paths = {}
+
+    # Detect hashcat
+    hashcat_path = find_tool_path('hashcat')
+    paths['hashcat_path'] = hashcat_path or join(expanduser('~'), 'hashcat', 'hashcat')
+
+    # Detect zizzania
+    zizzania_path = find_tool_path('zizzania')
+    paths['zizzania_path'] = zizzania_path or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
+
+    return paths
+
+
 class ConfigManager:
     """Manages configuration file operations."""
     
@@ -59,15 +144,18 @@ class ConfigManager:
         
     def create_default_config(self, config_path: str) -> bool:
         """Create a default configuration file.
-        
+
         Args:
             config_path: Path where to create the config file
-            
+
         Returns:
             bool: True if successful, False otherwise
         """
         config_path = os.path.expanduser(config_path)
-        
+
+        # Detect tool paths intelligently
+        detected_paths = get_default_tool_paths()
+
         # Create default config
         self.config["General"] = {
             "capture_file": "capture.pcap",
@@ -75,10 +163,11 @@ class ConfigManager:
             "auth_timeout": "60",
             "cleanup": "false",
         }
-        
+
+        # Use detected paths (Homebrew-first, then manual build fallback)
         self.config["Paths"] = {
-            "hashcat_path": join(expanduser('~'), 'hashcat', 'hashcat'),
-            "zizzania_path": join(expanduser('~'), 'zizzania', 'src', 'zizzania'),
+            "hashcat_path": detected_paths['hashcat_path'],
+            "zizzania_path": detected_paths['zizzania_path'],
         }
         
         self.config["Defaults"] = {
@@ -235,25 +324,57 @@ class WiFiCracker:
     
     def setup_tools(self):
         """Set up paths to external tools and verify their existence."""
-        # Set tool paths from arguments or use defaults
-        self.hashcat_path = self.args.hashcat_path or join(expanduser('~'), 'hashcat', 'hashcat')
-        self.zizzania_path = self.args.zizzania_path or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
-        
+        # Priority order:
+        # 1. Command-line arguments (--hashcat-path, --zizzania-path)
+        # 2. Config file values
+        # 3. Smart detection (Homebrew-first, then manual builds)
+        # 4. Hardcoded fallback defaults
+
+        if self.args.hashcat_path:
+            self.hashcat_path = self.args.hashcat_path
+        else:
+            # Try smart detection
+            detected = find_tool_path('hashcat')
+            self.hashcat_path = detected or join(expanduser('~'), 'hashcat', 'hashcat')
+
+        if self.args.zizzania_path:
+            self.zizzania_path = self.args.zizzania_path
+        else:
+            # Try smart detection
+            detected = find_tool_path('zizzania')
+            self.zizzania_path = detected or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
+
         # Validate tool paths if not in dry_run mode
         if not self.args.dry_run:
             missing_tools = []
             if not exists(self.hashcat_path):
                 missing_tools.append(f"hashcat: {self.hashcat_path}")
+                # Provide helpful hint
+                homebrew_hashcat = find_tool_path('hashcat')
+                if homebrew_hashcat:
+                    self.log.info(f"Hint: Found hashcat at {homebrew_hashcat}")
+                    self.log.info(f"Use --hashcat-path {homebrew_hashcat} or add to config file")
+
             if not exists(self.zizzania_path):
                 missing_tools.append(f"zizzania: {self.zizzania_path}")
-            
+                # Provide helpful hint
+                found_zizzania = find_tool_path('zizzania')
+                if found_zizzania:
+                    self.log.info(f"Hint: Found zizzania at {found_zizzania}")
+                    self.log.info(f"Use --zizzania-path {found_zizzania} or add to config file")
+
             if missing_tools:
                 self.log.error("Missing required tools:")
                 for tool in missing_tools:
                     self.log.error(f"  - {tool}")
+                self.log.error("")
+                self.log.error("Solutions:")
+                self.log.error("1. Install via Homebrew: brew install hashcat hcxtools")
+                self.log.error("2. Build manually and create config: airjack.py -C ~/.airjack.conf")
+                self.log.error("3. Specify paths: --hashcat-path /path/to/hashcat --zizzania-path /path/to/zizzania")
                 if not self.args.ignore_missing:
                     sys.exit(1)
-        
+
         self.log.debug(f"Using hashcat: {self.hashcat_path}")
         self.log.debug(f"Using zizzania: {self.zizzania_path}")
     

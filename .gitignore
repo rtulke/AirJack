@@ -1,3 +1,7 @@
 .DS_Store
 airjack2.py
 *pcab
+*.pcap
+*.pcapng
+test_*.py
+capture.hc22000
