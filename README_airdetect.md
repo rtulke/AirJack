@@ -38,10 +38,10 @@ This tool is provided for **EDUCATIONAL AND SECURITY RESEARCH PURPOSES ONLY**. O
 ========================================================================================================================
 BSSID              RSSI     Ch   Band      SSID                      Vendor            Security            Features
 ========================================================================================================================
-0c:8e:29:f9:50:91  -42dBm   40   5 GHz     5g.ns1.ch.mil.gov         Cisco Meraki      WPA2-Personal       -
-18:58:80:d0:82:8c  -56dBm   6    2.4 GHz   5g.ns1.ch.mil.gov         Unknown           WPA2-Personal       -
-dc:f5:1b:7d:d4:58  -88dBm   53   5 GHz     hve-45591                 Unknown           WPA3-Personal       -
-2c:91:ab:c5:a6:2f  -74dBm   11   2.4 GHz   LegoLAN                   TP-Link           WPA2-Personal       WPS RRM BSS-T 20MHz
+0c:8e:39:f9:50:91  -42dBm   40   5 GHz     5g.ramstein.mil.gov       Cisco Meraki      WPA2-Personal       -
+18:58:80:d2:82:8c  -56dBm   6    2.4 GHz   5g.ramstein.mil.gov       Unknown           WPA2-Personal       -
+dc:15:1b:7d:d4:58  -88dBm   53   5 GHz     hve-45591                 Unknown           WPA3-Personal       -
+2c:91:eb:25:a6:2f  -74dBm   11   2.4 GHz   LegoLAN                   TP-Link           WPA2-Personal       WPS RRM BSS-T 20MHz
 ========================================================================================================================
 
 Total APs: 10
