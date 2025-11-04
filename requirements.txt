@@ -1,5 +1,13 @@
+# AirJack WiFi Security Testing Tool - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core dependencies for airjack.py
 prettytable>=2.5.0
 pyfiglet>=0.8.post1
+
+# macOS framework bindings (required on macOS for CoreWLAN/CoreLocation)
 pyobjc-framework-CoreWLAN>=9.0
 pyobjc-framework-CoreLocation>=9.0
-rich>=13.0.0
+
+# Optional: for airdetect.py (passive WiFi scanner)
+scapy>=2.5.0
