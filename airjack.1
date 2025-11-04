@@ -1,4 +1,4 @@
-.TH AIRJACK 1 "March 2025" "AirJack 1.0" "User Commands"
+.TH AIRJACK 1 "November 2025" "AirJack 1.0" "User Commands"
 
 .SH NAME
 airjack \- WiFi security testing tool for macOS
@@ -9,127 +9,453 @@ airjack \- WiFi security testing tool for macOS
 
 .SH DESCRIPTION
 .B airjack
-is a tool for testing the security of WPA/WPA2 protected WiFi networks on macOS systems.
-It scans for available networks, captures handshakes, and attempts to recover passwords
-using dictionary or brute-force methods.
+is a comprehensive WiFi security testing tool designed specifically for macOS systems.
+It leverages the CoreWLAN framework to scan for available wireless networks, capture
+WPA/WPA2/WPA3 handshakes using zizzania, and attempts to recover network passwords
+using hashcat with dictionary or brute-force attacks.
+
+.PP
+The tool provides an interactive workflow that guides users through network selection,
+handshake capture, and password cracking. It supports configuration files for persistent
+settings and includes features like deauthentication attacks, custom wordlists, and
+hashcat optimization.
 
 .PP
 .B WARNING:
-This tool is for EDUCATIONAL PURPOSES ONLY. Only use on networks you own or have
-explicit permission to test. Unauthorized access to computer networks is illegal.
+This tool is for EDUCATIONAL AND AUTHORIZED SECURITY TESTING PURPOSES ONLY. Only use
+on networks you own or have explicit written permission to test. Unauthorized access
+to computer networks is illegal and punishable by law in most jurisdictions.
 
 .SH OPTIONS
-.SS Configuration Options:
+.SS Configuration Options
 .TP
 .BI \-c " FILE" ", \-\-config=" FILE
-Use configuration from specified file.
+Read configuration from the specified file. Configuration files use INI format and can
+specify defaults for most command-line options. The tool searches for configuration in
+this order: 1) file specified with \fB\-c\fR, 2) \fI~/.airjack.conf\fR, 3) \fI/etc/airjack.conf\fR.
 .TP
 .BI \-C " PATH" ", \-\-create\-config=" PATH
-Create a default configuration file at the specified path.
+Create a default configuration file at the specified path and exit. The generated file
+includes all available options with their default values and explanatory comments.
+Example: \fBairjack \-C ~/.airjack.conf\fR
 
-.SS Tool Paths:
+.SS Tool Paths
+These options override paths to external dependencies. By default, the tool searches
+for tools in standard locations and uses paths from the configuration file.
 .TP
 .BI "\-\-hashcat\-path=" PATH
-Path to hashcat executable (default: from config or ~/hashcat/hashcat).
+Full path to the hashcat executable. Default search order: 1) configuration file,
+2) \fI~/hashcat/hashcat\fR, 3) system PATH.
 .TP
 .BI "\-\-zizzania\-path=" PATH
-Path to zizzania executable (default: from config or ~/zizzania/src/zizzania).
+Full path to the zizzania executable. Default search order: 1) configuration file,
+2) \fI~/zizzania/src/zizzania\fR, 3) system PATH.
 
-.SS Network Selection:
+.SS Network Selection
 .TP
 .BI \-i " INTERFACE" ", \-\-interface=" INTERFACE
-Network interface to use (default: from config or auto-detect).
+Specify the wireless network interface to use for scanning and packet capture.
+If not specified, the tool will auto-detect the first available WiFi interface.
+Common values: \fBen0\fR, \fBen1\fR. Use \fBifconfig\fR to list available interfaces.
 .TP
 .BI \-n " INDEX" ", \-\-network\-index=" INDEX
-Select network by index, skipping interactive selection.
+Automatically select a network by its index number (1-based), skipping the interactive
+network selection menu. Useful for scripting and automation. Example: \fB\-n 1\fR selects
+the first network in the scan results.
 
-.SS Capture Options:
+.SS Capture Options
 .TP
 .B \-d\fR, \fB\-\-deauth
-Enable deauthentication (default: from config or disabled).
+Enable deauthentication attacks during handshake capture. This forces connected clients
+to disconnect and reconnect, triggering a WPA handshake. \fBWarning:\fR Only use on
+networks you own. Deauthentication attacks may be illegal without authorization.
 .TP
 .BI "\-\-capture\-file=" FILE
-Output capture file (default: from config or capture.pcap).
+Specify the output filename for the raw packet capture in pcap format.
+Default: \fIcapture.pcap\fR. This file contains all captured WiFi frames and can be
+analyzed with tools like Wireshark or tcpdump.
 .TP
 .BI "\-\-hashcat\-file=" FILE
-Output hashcat file (default: from config or capture.hc22000).
+Specify the output filename for the hashcat-compatible hash file in hc22000 format.
+Default: \fIcapture.hc22000\fR. This file is generated from the pcap using hcxpcapngtool
+and contains the extracted PMKID or EAPOL handshake data.
 
-.SS Cracking Options:
+.SS Cracking Options
 .TP
 .BI \-m " MODE" ", \-\-mode=" MODE
-Attack mode: 1=Dictionary, 2=Brute-force, 3=Manual.
+Select the password cracking attack mode:
+.RS
+.IP \fB1\fR
+Dictionary attack: tries passwords from a wordlist file (requires \fB\-w\fR).
+.IP \fB2\fR
+Brute-force attack: tries all combinations matching a pattern (requires \fB\-p\fR).
+.IP \fB3\fR
+Manual mode: prepares files but doesn't run hashcat, allowing manual cracking.
+.RE
 .TP
 .BI \-w " FILE" ", \-\-wordlist=" FILE
-Path to wordlist for dictionary attack.
+Path to a wordlist file for dictionary attacks (mode 1). Each line should contain one
+password candidate. Popular wordlists include rockyou.txt and crackstation.txt.
 .TP
 .BI \-p " PATTERN" ", \-\-pattern=" PATTERN
-Pattern for brute-force attack.
+Hashcat mask pattern for brute-force attacks (mode 2). Use hashcat mask syntax:
+.RS
+.IP \fB?d\fR
+Digit (0-9)
+.IP \fB?l\fR
+Lowercase letter (a-z)
+.IP \fB?u\fR
+Uppercase letter (A-Z)
+.IP \fB?s\fR
+Special character
+.IP \fB?a\fR
+All printable ASCII characters
+.PP
+Example: "\fB?d?d?d?d?d?d?d?d\fR" tests all 8-digit numbers.
+.RE
 .TP
 .B \-o\fR, \fB\-\-optimize
-Enable hashcat optimization (default: from config or disabled).
+Enable hashcat kernel optimization (\fB\-O\fR flag). This can significantly increase
+cracking speed but limits maximum password length to 32 characters. Recommended for
+most use cases.
 
-.SS Misc Options:
+.SS Miscellaneous Options
 .TP
 .BI "\-\-auth\-timeout=" SECONDS
-Timeout for location authorization (default: from config or 60 seconds).
+Timeout in seconds for macOS Location Services authorization. On first run, macOS
+will prompt for location permission (required by CoreWLAN). If authorization is not
+granted within this timeout, the tool exits. Default: 60 seconds.
 .TP
 .B \-\-cleanup
-Clean up sensitive files after completion (default: from config or disabled).
+Automatically delete capture files (\fIcapture.pcap\fR and \fIcapture.hc22000\fR) after
+completion. Useful for maintaining operational security by removing evidence. Use with
+caution.
 .TP
 .B \-\-dry\-run
-Simulate actions without running external tools.
+Simulate the complete workflow without actually running external tools (hashcat, zizzania,
+hcxpcapngtool). Useful for testing configuration and debugging. Shows what commands would
+be executed.
 .TP
 .B \-\-ignore\-missing
-Ignore missing tools and continue.
+Continue execution even if required external tools (hashcat, zizzania, hcxpcapngtool)
+are not found. Useful for partial testing or when tools are installed in non-standard
+locations.
 .TP
 .B \-\-no\-banner
-Disable banner display.
+Suppress the ASCII art banner on startup. Useful for scripting or when running in
+non-interactive environments.
 .TP
 .B \-v\fR, \fB\-\-verbose
-Enable verbose output (default: from config or disabled).
+Enable verbose output showing detailed progress information, debug messages, and
+command execution details. Helpful for troubleshooting issues.
 
 .SH FILES
+The following files are used by airjack for configuration and output:
 .TP
 .I ~/.airjack.conf
-User configuration file.
+Per-user configuration file in INI format. This file is checked after any file specified
+with \fB\-c\fR but before the system-wide configuration. Create with \fBairjack \-C ~/.airjack.conf\fR.
 .TP
-.I /etc/airjack/airjack.conf
-System-wide configuration file.
+.I /etc/airjack.conf
+System-wide configuration file. Used as a fallback if no user configuration exists.
+Requires root permissions to modify.
 .TP
 .I capture.pcap
-Default packet capture file.
+Default output file for raw WiFi packet captures in pcap format. Contains beacon frames,
+probe requests/responses, and EAPOL handshake packets. Can be analyzed with Wireshark,
+tcpdump, or other packet analysis tools.
 .TP
 .I capture.hc22000
-Default hashcat format file.
+Default output file for hashcat-compatible password hashes in hc22000 format. Generated
+from the pcap file using hcxpcapngtool. Contains PMKID or EAPOL handshake data suitable
+for password cracking with hashcat.
+
+.SH CONFIGURATION FILE FORMAT
+Configuration files use standard INI format with sections and key=value pairs. Lines
+starting with \fB#\fR or \fB;\fR are treated as comments.
+
+.PP
+.B Example configuration:
+.PP
+.nf
+.RS
+[General]
+capture_file = capture.pcap
+hashcat_file = capture.hc22000
+auth_timeout = 60
+cleanup = false
+
+[Paths]
+hashcat_path = /usr/local/bin/hashcat
+zizzania_path = /usr/local/bin/zizzania
+
+[Defaults]
+interface = en0
+deauth = false
+optimize = true
+verbose = false
+.RE
+.fi
 
 .SH EXAMPLES
+.SS Basic Usage
 .TP
-Scan networks and follow interactive prompts:
 .B airjack
+Interactive mode: Scan for networks, select target, capture handshake, and choose
+cracking method via on-screen prompts. Recommended for first-time users.
+
+.SS Configuration File Management
 .TP
-Create a default configuration file:
 .B airjack \-C ~/.airjack.conf
+Create a default configuration file in your home directory with all available options
+and sensible defaults.
 .TP
-Use a specific configuration file:
 .B airjack \-c ~/custom.conf
+Run airjack using settings from a custom configuration file.
+
+.SS Automated Network Selection
 .TP
-Dictionary attack on the first network using specified wordlist:
-.B airjack \-n 1 \-m 1 \-w /path/to/wordlist.txt
+.B airjack \-n 1
+Automatically select the first network from the scan results, skipping interactive
+selection. Useful for testing or when the target network is known to be strongest.
 .TP
-Brute force attack with optimization:
+.B airjack \-n 3 \-v
+Select the third network and enable verbose output for detailed progress information.
+
+.SS Dictionary Attacks
+.TP
+.B airjack \-m 1 \-w /usr/share/wordlists/rockyou.txt
+Perform a dictionary attack using the classic rockyou.txt wordlist. The tool will
+scan, capture handshake, and crack using provided passwords.
+.TP
+.B airjack \-n 1 \-m 1 \-w ~/wordlists/custom.txt \-o
+Select first network, use custom wordlist, and enable hashcat optimization for
+faster cracking.
+.TP
+.B airjack \-m 1 \-w wordlist.txt \-d
+Enable deauthentication to force clients to reconnect, ensuring handshake capture.
+
+.SS Brute-Force Attacks
+.TP
 .B airjack \-m 2 \-p "?d?d?d?d?d?d?d?d" \-o
+Brute-force all 8-digit numeric passwords (00000000-99999999) with optimization.
+.TP
+.B airjack \-m 2 \-p "?l?l?l?l?l?l?l?l"
+Try all 8-character lowercase letter combinations (a-z).
+.TP
+.B airjack \-m 2 \-p "Admin?d?d?d?d" \-o
+Test passwords starting with "Admin" followed by 4 digits (Admin0000-Admin9999).
+
+.SS Manual Mode
+.TP
+.B airjack \-m 3
+Capture handshake and prepare hashcat file, but don't run cracking automatically.
+Allows manual hashcat invocation with custom parameters.
+.TP
+.B airjack \-m 3 \-\-capture\-file mynet.pcap \-\-hashcat\-file mynet.hc22000
+Manual mode with custom output filenames.
+
+.SS Advanced Options
+.TP
+.B airjack \-\-dry\-run \-v
+Simulate the entire workflow without executing external tools. Shows exactly what
+commands would be run. Useful for debugging or verifying configuration.
+.TP
+.B airjack \-\-cleanup \-m 1 \-w wordlist.txt
+Run dictionary attack and automatically delete capture files after completion
+for operational security.
+.TP
+.B airjack \-\-ignore\-missing \-\-no\-banner
+Run without checking for external tools and suppress the banner. Advanced users only.
+.TP
+.B airjack \-\-auth\-timeout 120
+Increase Location Services authorization timeout to 2 minutes for slower systems
+or when user confirmation may be delayed.
+
+.SS Combining Multiple Options
+.TP
+.B airjack \-n 2 \-m 1 \-w /path/to/wordlist.txt \-d \-o \-v \-\-cleanup
+Complete automated workflow: select 2nd network, dictionary attack with deauth enabled,
+optimize hashcat, verbose output, and cleanup files afterward.
+.TP
+.B airjack \-c ~/.airjack.conf \-n 1 \-v
+Use personal configuration file, auto-select first network, and enable verbose mode.
+
+.SH WORKFLOW
+The typical airjack workflow consists of the following phases:
+
+.PP
+.B 1. Network Scanning
+.RS
+Uses macOS CoreWLAN framework to scan for available WiFi networks. Displays SSID,
+BSSID, signal strength (RSSI), channel, and security type.
+.RE
+
+.PP
+.B 2. Network Selection
+.RS
+Interactive menu to select target network, or automatic selection with \fB\-n\fR option.
+.RE
+
+.PP
+.B 3. Handshake Capture
+.RS
+Uses zizzania to capture WPA/WPA2 4-way handshake or PMKID. Optionally uses deauth
+attacks to force client reconnections.
+.RE
+
+.PP
+.B 4. Hash Conversion
+.RS
+Uses hcxpcapngtool to convert pcap file to hashcat hc22000 format.
+.RE
+
+.PP
+.B 5. Password Cracking
+.RS
+Uses hashcat in dictionary mode (3) or brute-force mode (6) to recover the network
+password from the captured handshake.
+.RE
+
+.SH DEPENDENCIES
+The following external tools are required for full functionality:
+
+.TP
+.B hashcat
+GPU-accelerated password recovery tool. Install via Homebrew: \fBbrew install hashcat\fR
+or download from https://hashcat.net/hashcat/
+.TP
+.B zizzania
+WiFi handshake capture tool for macOS. Clone and build from:
+https://github.com/cyrus-and/zizzania
+.TP
+.B hcxpcapngtool
+Part of hcxtools, converts pcap to hashcat format. Install via Homebrew:
+\fBbrew install hcxtools\fR or from https://github.com/ZerBea/hcxtools
+
+.PP
+Python dependencies (install with \fBpip install -r requirements.txt\fR):
+.RS
+.IP \(bu 2
+prettytable \- for formatted table output
+.IP \(bu 2
+pyfiglet \- for ASCII banner generation
+.IP \(bu 2
+pyobjc-framework-CoreWLAN \- macOS WiFi framework bindings
+.IP \(bu 2
+pyobjc-framework-CoreLocation \- macOS Location Services bindings
+.RE
+
+.SH ENVIRONMENT
+.TP
+.B PATH
+Searched for external tools (hashcat, hcxpcapngtool) if not specified in configuration
+or command-line options.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Successful completion (password found or workflow completed as expected).
+.TP
+.B 1
+General error (missing dependencies, configuration errors, runtime failures).
+.TP
+.B 2
+User interruption (Ctrl+C) or timeout.
+
+.SH SECURITY CONSIDERATIONS
+.PP
+.B Legal Compliance
+.RS
+Only use airjack on networks you own or have explicit written authorization to test.
+Unauthorized network access, packet capture, and deauthentication attacks are illegal
+in most jurisdictions under laws like the Computer Fraud and Abuse Act (USA), Computer
+Misuse Act (UK), and similar legislation worldwide.
+.RE
+
+.PP
+.B Operational Security
+.RS
+.IP \(bu 2
+Use \fB\-\-cleanup\fR to remove capture files after testing
+.IP \(bu 2
+Store wordlists and capture files on encrypted volumes
+.IP \(bu 2
+Be aware that deauth attacks may disrupt network service
+.IP \(bu 2
+Some networks log MAC addresses of scanning devices
+.RE
+
+.PP
+.B Ethical Use
+.RS
+This tool is intended for legitimate security testing, research, and education only.
+Use responsibly and document all authorized testing activities.
+.RE
+
+.SH TROUBLESHOOTING
+.TP
+.B "No networks found" or "BSSID: None"
+Ensure Location Services permission is granted for Terminal or Python. Check
+System Settings \(-> Privacy & Security \(-> Location Services.
+On macOS 15+, use system Python: \fB/usr/bin/python3 airjack.py\fR
+.TP
+.B "hashcat not found" or "zizzania not found"
+Install missing dependencies via Homebrew or specify custom paths with
+\fB\-\-hashcat\-path\fR and \fB\-\-zizzania\-path\fR options.
+.TP
+.B "Capture file not found: capture.hc22000"
+No valid handshake was captured. Enable deauth with \fB\-d\fR or wait for clients
+to naturally connect/reconnect. Verify clients are active on the target network.
+.TP
+.B "Permission denied" errors
+Some operations may require elevated privileges. Try running with \fBsudo\fR.
+.TP
+.B Hashcat reports "No hash found"
+The capture file doesn't contain a valid WPA handshake or PMKID. Recapture with
+deauth enabled or increase capture duration.
 
 .SH SEE ALSO
 .BR hashcat (1),
 .BR tcpdump (1),
-.BR aircrack-ng (1)
+.BR aircrack-ng (1),
+.BR wireshark (1),
+.BR ifconfig (8)
+
+.PP
+Online resources:
+.RS
+.IP \(bu 2
+AirJack GitHub: https://github.com/rtulke/AirJack
+.IP \(bu 2
+Hashcat Wiki: https://hashcat.net/wiki/
+.IP \(bu 2
+WPA/WPA2 Cracking Guide: https://hashcat.net/wiki/doku.php?id=cracking_wpawpa2
+.RE
 
 .SH BUGS
-Please report bugs at https://github.com/rtulke/airjack/issues
+Report bugs and feature requests at: https://github.com/rtulke/AirJack/issues
+
+.PP
+Known limitations:
+.RS
+.IP \(bu 2
+macOS only (uses CoreWLAN framework)
+.IP \(bu 2
+Requires Location Services permission on macOS
+.IP \(bu 2
+WPA3 networks may not be crackable with dictionary/brute-force methods
+.IP \(bu 2
+Performance depends on GPU capabilities (for hashcat)
+.RE
 
 .SH AUTHOR
-Robert Tulke <rt@debian.sh>
+Written by Robert Tulke <rt@debian.sh>
 
 .SH COPYRIGHT
-Copyright \(co 2025 Robert Tulke. 
-Licensed under MIT License.
+Copyright \(co 2025 Robert Tulke.
+.PP
+Licensed under the MIT License. This is free software: you are free to change and
+redistribute it. There is NO WARRANTY, to the extent permitted by law.
+.PP
+See the LICENSE file or visit https://opensource.org/licenses/MIT for details.
