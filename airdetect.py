@@ -98,6 +98,10 @@ class Colors:
     SSID = '\033[96m'           # Cyan
     BSSID = '\033[94m'          # Blue
 
+    # Visibility colors
+    GRAY = '\033[90m'           # Gray - for invisible/offline APs
+    DIM = '\033[2m'             # Dim text
+
 # ------------------------------
 # Helpers: Suite decoding
 # ------------------------------
@@ -324,6 +328,11 @@ class APInfo:
     beacon_interval: Optional[int] = None
     deauth_count: int = 0
     disassoc_count: int = 0
+    # Tracking fields
+    ap_id: Optional[int] = None  # Unique ID assigned at discovery
+    first_seen: Optional[float] = None  # Timestamp when first discovered
+    last_seen: Optional[float] = None  # Timestamp when last seen
+    currently_visible: bool = True  # Whether AP is visible in current scan
 
     def security_label(self) -> str:
         """Return simplified, user-friendly security label."""
@@ -643,80 +652,207 @@ def process_deauth_disassoc(pkt, aps: Dict[str, APInfo]):
 # CLI
 # ------------------------------
 
-def print_report(aps: Dict[str, APInfo]):
+def clear_screen():
+    """Clear the terminal screen."""
+    os.system('clear' if os.name == 'posix' else 'cls')
+
+
+def move_cursor_up(lines: int):
+    """Move terminal cursor up by N lines."""
+    print(f"\033[{lines}A", end='')
+
+
+def clear_line():
+    """Clear current line in terminal."""
+    print("\033[2K", end='')
+
+
+def save_cursor_position():
+    """Save current cursor position."""
+    print("\033[s", end='', flush=True)
+
+
+def restore_cursor_position():
+    """Restore saved cursor position."""
+    print("\033[u", end='', flush=True)
+
+
+def get_report_line_count(aps: Dict[str, APInfo]) -> int:
+    """Calculate how many lines the report will occupy."""
+    if not aps:
+        return 1  # "No APs discovered."
+
+    # Header lines: timestamp (1) + blank (1) + separator (1) + header (1) + separator (1) = 5
+    # AP entries: len(aps)
+    # Footer: separator (1) + blank (1) + Total APs (1) + WPS (1) + PMF (1) + WPA3 (1) + Hidden (1) = 7
+    # Potential deauth warning: 1 (if present)
+
+    base_lines = 5 + len(aps) + 7
+
+    # Check if deauth warning will be shown
+    deauth_aps = [ap for ap in aps.values() if ap.deauth_count > 10]
+    if deauth_aps:
+        base_lines += 1
+
+    return base_lines
+
+
+def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False):
     if not aps:
         print("No APs discovered.")
         return
 
-    # Sort by RSSI (strongest first), then by SSID
-    sorted_aps = sorted(aps.items(), key=lambda kv: (-(kv[1].rssi or -100), kv[1].ssid, kv[0]))
+    # Sort by AP ID (if available), otherwise by RSSI
+    if show_ids:
+        sorted_aps = sorted(aps.items(), key=lambda kv: (kv[1].ap_id or 9999, -(kv[1].rssi or -100)))
+    else:
+        sorted_aps = sorted(aps.items(), key=lambda kv: (-(kv[1].rssi or -100), kv[1].ssid, kv[0]))
 
-    print("\n" + "="*120)
-    print(f"{Colors.BOLD}{'BSSID':<17}  {'RSSI':<7}  {'Ch':<3}  {'Band':<8}  {'SSID':<24}  {'Vendor':<16}  {'Security':<18}  {'Features'}{Colors.ENDC}")
-    print("="*120)
+    # Show timestamp if in permanent mode
+    if show_timestamp:
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n{Colors.BOLD}Last updated: {Colors.OKCYAN}{timestamp}{Colors.ENDC}")
+
+    print("\n" + "="*127)
+    if show_ids:
+        print(f"{Colors.BOLD}{'ID':<4}  {'BSSID':<17}  {'RSSI':<7}  {'Ch':<3}  {'Band':<8}  {'SSID':<22}  {'Vendor':<14}  {'Security':<16}  {'Features'}{Colors.ENDC}")
+    else:
+        print(f"{Colors.BOLD}{'BSSID':<17}  {'RSSI':<7}  {'Ch':<3}  {'Band':<8}  {'SSID':<24}  {'Vendor':<16}  {'Security':<18}  {'Features'}{Colors.ENDC}")
+    table_width = 127 if show_ids else 120
+    print("="*table_width)
 
     for bssid, ap in sorted_aps:
+        # Check if AP is currently visible - if not, gray out the entire line
+        is_visible = getattr(ap, 'currently_visible', True)  # Default to True for backward compatibility
+        gray_prefix = Colors.GRAY if not is_visible else ""
+        gray_suffix = Colors.ENDC if not is_visible else ""
+
+        # ID display (if enabled)
+        if show_ids:
+            if is_visible:
+                id_str = f"{Colors.BOLD}{Colors.WARNING}{ap.ap_id:<3}{Colors.ENDC}" if ap.ap_id else f"{Colors.WARNING}?{Colors.ENDC}  "
+            else:
+                id_str = f"{Colors.GRAY}{ap.ap_id:<3}{Colors.ENDC}" if ap.ap_id else f"{Colors.GRAY}?{Colors.ENDC}  "
+            id_padding = 4 + len(id_str) - 3  # Account for ANSI codes
+
         # Colorize BSSID
-        bssid_colored = colorize_bssid(bssid)
+        if is_visible:
+            bssid_colored = colorize_bssid(bssid)
+        else:
+            bssid_colored = f"{Colors.GRAY}{bssid}{Colors.ENDC}"
 
         # Colorize RSSI
-        rssi_colored = colorize_rssi(ap.rssi)
+        if is_visible:
+            rssi_colored = colorize_rssi(ap.rssi)
+        else:
+            rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
+            rssi_colored = f"{Colors.GRAY}{rssi_plain}{Colors.ENDC}"
 
-        # Basic info
-        ch_str = str(ap.channel) if ap.channel else "-"
-        band_str = ap.band or "-"
+        # Basic info - gray out if not visible
+        if is_visible:
+            ch_str = str(ap.channel) if ap.channel else "-"
+            band_str = ap.band or "-"
+        else:
+            ch_str = f"{Colors.GRAY}{ap.channel if ap.channel else '-'}{Colors.ENDC}"
+            band_str = f"{Colors.GRAY}{ap.band or '-'}{Colors.ENDC}"
 
         # SSID with proper truncation and colorization
-        if ap.hidden:
-            ssid_display = colorize_ssid("", hidden=True)
-            # Compensate for ANSI codes in padding
-            ssid_padding = 24
-        elif len(ap.ssid) > 24:
-            ssid_truncated = ap.ssid[:21] + "..."
-            ssid_display = colorize_ssid(ssid_truncated)
-            ssid_padding = 24
+        ssid_max_len = 22 if show_ids else 24
+        if is_visible:
+            if ap.hidden:
+                ssid_display = colorize_ssid("", hidden=True)
+                ssid_padding = ssid_max_len
+            elif len(ap.ssid) > ssid_max_len:
+                ssid_truncated = ap.ssid[:ssid_max_len-3] + "..."
+                ssid_display = colorize_ssid(ssid_truncated)
+                ssid_padding = ssid_max_len
+            else:
+                ssid_display = colorize_ssid(ap.ssid)
+                ssid_padding = ssid_max_len + len(ssid_display) - len(ap.ssid)
         else:
-            ssid_display = colorize_ssid(ap.ssid)
-            # Calculate padding to account for ANSI color codes
-            ssid_padding = 24 + len(ssid_display) - len(ap.ssid)
+            # Gray out SSID for invisible APs
+            if ap.hidden:
+                ssid_text = "<hidden>"
+            elif len(ap.ssid) > ssid_max_len:
+                ssid_text = ap.ssid[:ssid_max_len-3] + "..."
+            else:
+                ssid_text = ap.ssid
+            ssid_display = f"{Colors.GRAY}{ssid_text}{Colors.ENDC}"
+            ssid_padding = ssid_max_len + len(ssid_display) - len(ssid_text)
 
         # Vendor with proper truncation and colorization
-        if ap.vendor and len(ap.vendor) > 16:
-            vendor_truncated = ap.vendor[:13] + "..."
-            vendor_display = colorize_vendor(vendor_truncated)
-            vendor_padding = 16
+        vendor_max_len = 14 if show_ids else 16
+        if is_visible:
+            if ap.vendor and len(ap.vendor) > vendor_max_len:
+                vendor_truncated = ap.vendor[:vendor_max_len-3] + "..."
+                vendor_display = colorize_vendor(vendor_truncated)
+                vendor_padding = vendor_max_len
+            else:
+                vendor_text = ap.vendor or "Unknown"
+                vendor_display = colorize_vendor(vendor_text)
+                vendor_padding = vendor_max_len + len(vendor_display) - len(vendor_text)
         else:
-            vendor_text = ap.vendor or "Unknown"
-            vendor_display = colorize_vendor(vendor_text)
-            vendor_padding = 16 + len(vendor_display) - len(vendor_text)
+            # Gray out vendor for invisible APs
+            if ap.vendor and len(ap.vendor) > vendor_max_len:
+                vendor_text = ap.vendor[:vendor_max_len-3] + "..."
+            else:
+                vendor_text = ap.vendor or "Unknown"
+            vendor_display = f"{Colors.GRAY}{vendor_text}{Colors.ENDC}"
+            vendor_padding = vendor_max_len + len(vendor_display) - len(vendor_text)
 
         # Security label - colorized
         sec = ap.security_label()
-        sec_colored = colorize_security(sec)
-        # Calculate padding for security with ANSI codes
-        sec_padding = 18 + len(sec_colored) - len(sec)
+        if is_visible:
+            sec_colored = colorize_security(sec)
+        else:
+            sec_colored = f"{Colors.GRAY}{sec}{Colors.ENDC}"
+        sec_max_len = 16 if show_ids else 18
+        sec_padding = sec_max_len + len(sec_colored) - len(sec)
 
         # Features column
         features = []
-        if ap.wps_enabled:
-            wps_status = f"{Colors.FAIL}🔓WPS{Colors.ENDC}" if ap.wps_locked is False else f"{Colors.WARNING}WPS{Colors.ENDC}"
-            features.append(wps_status)
-        if ap.pmf_required:
-            features.append(f"{Colors.OKGREEN}PMF:req{Colors.ENDC}")
-        elif ap.pmf_capable:
-            features.append(f"{Colors.OKCYAN}PMF:cap{Colors.ENDC}")
-        if ap.ft_present:
-            features.append(f"{Colors.OKCYAN}FT{Colors.ENDC}")
-        if ap.rrm_enabled:
-            features.append(f"{Colors.OKCYAN}RRM{Colors.ENDC}")
-        if ap.bss_transition:
-            features.append(f"{Colors.OKCYAN}BSS-T{Colors.ENDC}")
-        if ap.channel_width:
-            features.append(f"{Colors.OKBLUE}{ap.channel_width}MHz{Colors.ENDC}")
-        if ap.handshake_observed:
-            features.append(f"{Colors.OKGREEN}4WH{Colors.ENDC}")
-        if ap.deauth_count > 10:
-            features.append(f"{Colors.FAIL}⚠️DA:{ap.deauth_count}{Colors.ENDC}")
+        if is_visible:
+            if ap.wps_enabled:
+                wps_status = f"{Colors.FAIL}🔓WPS{Colors.ENDC}" if ap.wps_locked is False else f"{Colors.WARNING}WPS{Colors.ENDC}"
+                features.append(wps_status)
+            if ap.pmf_required:
+                features.append(f"{Colors.OKGREEN}PMF:req{Colors.ENDC}")
+            elif ap.pmf_capable:
+                features.append(f"{Colors.OKCYAN}PMF:cap{Colors.ENDC}")
+            if ap.ft_present:
+                features.append(f"{Colors.OKCYAN}FT{Colors.ENDC}")
+            if ap.rrm_enabled:
+                features.append(f"{Colors.OKCYAN}RRM{Colors.ENDC}")
+            if ap.bss_transition:
+                features.append(f"{Colors.OKCYAN}BSS-T{Colors.ENDC}")
+            if ap.channel_width:
+                features.append(f"{Colors.OKBLUE}{ap.channel_width}MHz{Colors.ENDC}")
+            if ap.handshake_observed:
+                features.append(f"{Colors.OKGREEN}4WH{Colors.ENDC}")
+            if ap.deauth_count > 10:
+                features.append(f"{Colors.FAIL}⚠️DA:{ap.deauth_count}{Colors.ENDC}")
+        else:
+            # Gray out features for invisible APs
+            if ap.wps_enabled:
+                wps_status = "🔓WPS" if ap.wps_locked is False else "WPS"
+                features.append(f"{Colors.GRAY}{wps_status}{Colors.ENDC}")
+            if ap.pmf_required:
+                features.append(f"{Colors.GRAY}PMF:req{Colors.ENDC}")
+            elif ap.pmf_capable:
+                features.append(f"{Colors.GRAY}PMF:cap{Colors.ENDC}")
+            if ap.ft_present:
+                features.append(f"{Colors.GRAY}FT{Colors.ENDC}")
+            if ap.rrm_enabled:
+                features.append(f"{Colors.GRAY}RRM{Colors.ENDC}")
+            if ap.bss_transition:
+                features.append(f"{Colors.GRAY}BSS-T{Colors.ENDC}")
+            if ap.channel_width:
+                features.append(f"{Colors.GRAY}{ap.channel_width}MHz{Colors.ENDC}")
+            if ap.handshake_observed:
+                features.append(f"{Colors.GRAY}4WH{Colors.ENDC}")
+            if ap.deauth_count > 10:
+                features.append(f"{Colors.GRAY}⚠️DA:{ap.deauth_count}{Colors.ENDC}")
 
         features_str = " ".join(features) if features else "-"
 
@@ -727,9 +863,23 @@ def print_report(aps: Dict[str, APInfo]):
         rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
         rssi_padding = 7 + len(rssi_colored) - len(rssi_plain)
 
-        print(f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<3}  {band_str:<8}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}")
+        # Calculate channel and band padding for ANSI codes
+        if is_visible:
+            ch_padding = 3
+            band_padding = 8
+        else:
+            ch_plain = str(ap.channel) if ap.channel else "-"
+            band_plain = ap.band or "-"
+            ch_padding = 3 + len(ch_str) - len(ch_plain)
+            band_padding = 8 + len(band_str) - len(band_plain)
 
-    print("="*120)
+        # Print line with or without ID
+        if show_ids:
+            print(f"{id_str:<{id_padding}}  {bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}")
+        else:
+            print(f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}")
+
+    print("="*table_width)
     print(f"\n{Colors.BOLD}Total APs: {Colors.OKGREEN}{len(aps)}{Colors.ENDC}")
 
     wps_count = sum(1 for ap in aps.values() if ap.wps_enabled)
@@ -1117,6 +1267,305 @@ def check_monitor_mode(iface: str) -> bool:
     return False
 
 
+def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str] = None, channel: Optional[int] = None):
+    """
+    Permanent scan mode - continuously scan and update results in real-time.
+    Maintains a pool of APs and updates display as networks come and go.
+
+    Args:
+        interval: Scan and display refresh interval in seconds (used for both scanning and display updates)
+        observe_eapol: Whether to observe EAPOL frames
+        iface: Interface to use (for Linux monitor mode)
+        channel: Channel hint
+    """
+    import time
+    import datetime
+    import threading
+
+    # AP pool - continuously updated
+    ap_pool: Dict[str, APInfo] = {}
+    ap_pool_lock = threading.Lock()
+    scan_active = threading.Event()
+    scan_active.set()
+
+    # ID management
+    next_ap_id = 1
+    ap_id_lock = threading.Lock()
+
+    previous_line_count = 0
+    first_display = True
+    last_change_time = datetime.datetime.now()  # When AP pool actually changed
+    last_scan_time = datetime.datetime.now()    # When last scan completed
+
+    print(f"{Colors.BOLD}{Colors.OKGREEN}[*] Continuous scan mode activated{Colors.ENDC}")
+    print(f"[*] Scan and display interval: every {interval}s")
+    print(f"[*] Press Ctrl+C to exit\n")
+    time.sleep(1)
+
+    # Background scanning thread for CoreWLAN (or continuous Scapy)
+    def background_scanner():
+        """Background thread that continuously updates the AP pool."""
+        nonlocal ap_pool, last_change_time, last_scan_time
+        import sys as sys_module  # Import locally to avoid scope issues
+
+        # For CoreWLAN, we need a separate client instance for thread safety
+        if sys_module.platform == 'darwin' and COREWLAN_AVAILABLE:
+            try:
+                client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
+                interface = client.interface()
+                if not interface:
+                    print(f"[!] Background scanner: No WiFi interface found")
+                    return
+            except Exception as e:
+                print(f"[!] Background scanner: CoreWLAN init failed: {e}")
+                return
+
+        while scan_active.is_set():
+            try:
+                if sys_module.platform == 'darwin' and COREWLAN_AVAILABLE:
+                    # CoreWLAN: Quick scan using thread-local interface
+                    networks, error = interface.scanForNetworksWithName_error_(None, None)
+
+                    # Always update scan time (even if no networks or error)
+                    last_scan_time = datetime.datetime.now()
+
+                    if error:
+                        # Ignore "Resource busy" errors (happens during concurrent scans)
+                        if "16" not in str(error):  # Error code 16 = EBUSY
+                            print(f"[!] Background scan error: {error}")
+                    elif networks:
+                        # Mark all APs as not visible before this scan
+                        with ap_pool_lock:
+                            for ap in ap_pool.values():
+                                ap.currently_visible = False
+
+                        new_aps = {}
+                        for network in networks:
+                            bssid = network.bssid()
+                            if not bssid:
+                                continue
+
+                            ssid = network.ssid() or ""
+                            channel = network.wlanChannel().channelNumber() if network.wlanChannel() else None
+                            rssi = network.rssiValue()
+                            vendor = get_vendor(bssid)
+
+                            ap = APInfo(
+                                bssid=bssid,
+                                ssid=ssid,
+                                channel=channel,
+                                rssi=rssi,
+                                vendor=vendor,
+                                hidden=(ssid == ""),
+                                band=get_band(channel) if channel else None
+                            )
+
+                            # Parse security
+                            if hasattr(network, 'supportsSecurity_'):
+                                if network.supportsSecurity_(CoreWLAN.kCWSecurityWPA2Personal):
+                                    ap.rsn_present = True
+                                    ap.akms.add("PSK")
+                                elif network.supportsSecurity_(CoreWLAN.kCWSecurityWPA2Enterprise):
+                                    ap.rsn_present = True
+                                    ap.akms.add("802.1X")
+                                elif network.supportsSecurity_(CoreWLAN.kCWSecurityWPAPersonal):
+                                    ap.wpa1_present = True
+                                    ap.akms.add("PSK")
+                                elif network.supportsSecurity_(CoreWLAN.kCWSecurityWPAEnterprise):
+                                    ap.wpa1_present = True
+                                    ap.akms.add("802.1X")
+                                elif network.supportsSecurity_(CoreWLAN.kCWSecurityWPA3Personal):
+                                    ap.rsn_present = True
+                                    ap.akms.add("SAE")
+                                elif network.supportsSecurity_(CoreWLAN.kCWSecurityWPA3Enterprise):
+                                    ap.rsn_present = True
+                                    ap.akms.add("802.1X-SHA256")
+
+                            if network.supportsSecurity_(CoreWLAN.kCWSecurityWEP):
+                                ap.privacy_bit = True
+                            elif network.supportsSecurity_(CoreWLAN.kCWSecurityNone):
+                                ap.privacy_bit = False
+
+                            new_aps[bssid] = ap
+
+                        # Merge into pool
+                        pool_changed = False
+                        with ap_pool_lock:
+                            # Check for visibility changes (APs that disappeared)
+                            for existing_ap in ap_pool.values():
+                                if existing_ap.currently_visible and existing_ap.bssid not in new_aps:
+                                    pool_changed = True
+                                    break
+
+                            for bssid, ap in new_aps.items():
+                                current_time = time.time()
+                                if bssid in ap_pool:
+                                    old_ap = ap_pool[bssid]
+                                    # Check if AP was invisible and is now visible again
+                                    if not old_ap.currently_visible:
+                                        pool_changed = True
+                                    # Keep existing ID and first_seen
+                                    ap.ap_id = old_ap.ap_id
+                                    ap.first_seen = old_ap.first_seen
+                                    # Update last_seen
+                                    ap.last_seen = current_time
+                                    # Mark as currently visible
+                                    ap.currently_visible = True
+                                    # Keep the strongest RSSI seen
+                                    if ap.rssi and old_ap.rssi:
+                                        ap.rssi = max(ap.rssi, old_ap.rssi)
+                                    # Merge other properties
+                                    ap.handshake_observed = ap.handshake_observed or old_ap.handshake_observed
+                                    ap.deauth_count += old_ap.deauth_count
+                                    ap.disassoc_count += old_ap.disassoc_count
+                                else:
+                                    # New AP - assign ID
+                                    pool_changed = True
+                                    with ap_id_lock:
+                                        nonlocal next_ap_id
+                                        ap.ap_id = next_ap_id
+                                        next_ap_id += 1
+                                    ap.first_seen = current_time
+                                    ap.last_seen = current_time
+                                    # New APs are visible
+                                    ap.currently_visible = True
+                                ap_pool[bssid] = ap
+
+                        # Update change time if pool changed
+                        if pool_changed:
+                            last_change_time = datetime.datetime.now()
+
+                    time.sleep(interval)  # Wait between CoreWLAN scans
+
+                elif iface:
+                    # Scapy: Continuous packet capture
+                    # Use callback to update pool in real-time
+                    def packet_callback(pkt):
+                        if not scan_active.is_set():
+                            return
+
+                        temp_aps = {}
+                        if pkt.haslayer(Dot11):
+                            if pkt.type == 0 and pkt.subtype in (8, 5):  # Beacon or ProbeResp
+                                process_mgmt_frame(pkt, temp_aps)
+                            if observe_eapol and pkt.haslayer(EAPOL):
+                                process_eapol(pkt, temp_aps)
+                            if pkt.type == 0 and pkt.subtype in (10, 12):
+                                process_deauth_disassoc(pkt, temp_aps)
+
+                        # Merge into main pool
+                        if temp_aps:
+                            pool_changed = False
+                            with ap_pool_lock:
+                                for bssid, ap in temp_aps.items():
+                                    current_time = time.time()
+                                    if bssid in ap_pool:
+                                        old_ap = ap_pool[bssid]
+                                        # Keep existing ID and first_seen
+                                        ap.ap_id = old_ap.ap_id
+                                        ap.first_seen = old_ap.first_seen
+                                        # Update last_seen
+                                        ap.last_seen = current_time
+                                        if ap.rssi and old_ap.rssi:
+                                            ap.rssi = max(ap.rssi, old_ap.rssi)
+                                        ap.handshake_observed = ap.handshake_observed or old_ap.handshake_observed
+                                        ap.deauth_count += old_ap.deauth_count
+                                    else:
+                                        # New AP - assign ID
+                                        pool_changed = True
+                                        with ap_id_lock:
+                                            nonlocal next_ap_id
+                                            ap.ap_id = next_ap_id
+                                            next_ap_id += 1
+                                        ap.first_seen = current_time
+                                        ap.last_seen = current_time
+                                    ap_pool[bssid] = ap
+
+                            # Update timestamps (outside of loop but inside lock is ok here)
+                            last_scan_time = datetime.datetime.now()
+                            if pool_changed:
+                                last_change_time = last_scan_time
+
+                    # Continuous sniff
+                    sniff(iface=iface, prn=packet_callback, store=False, stop_filter=lambda x: not scan_active.is_set())
+
+            except Exception as e:
+                if scan_active.is_set():  # Only print if not shutting down
+                    print(f"\n[!] Background scanner error: {e}")
+                break
+
+    # Start background scanner
+    scanner_thread = threading.Thread(target=background_scanner, daemon=True)
+    scanner_thread.start()
+
+    try:
+        # Collect all output in a buffer on first iteration to know exact line count
+        import io
+
+        while True:
+            # Wait for display update interval
+            time.sleep(interval)
+
+            # Get snapshot of current AP pool
+            with ap_pool_lock:
+                current_aps = dict(ap_pool)
+
+            # Build output in a string buffer
+            output_buffer = io.StringIO()
+
+            # Redirect stdout temporarily to capture output
+            import sys
+            old_stdout = sys.stdout
+            sys.stdout = output_buffer
+
+            try:
+                # Display header
+                print(f"{Colors.BOLD}=== AirDetect Continuous Scan Mode ==={Colors.ENDC}")
+                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} (last change: {last_change_time.strftime('%H:%M:%S')})")
+
+                # Display results
+                if len(current_aps) == 0:
+                    print(f"\n{Colors.WARNING}[!] No access points detected yet... (scanning){Colors.ENDC}")
+                else:
+                    print_report(current_aps, show_timestamp=False, show_ids=True)
+
+                # Show status
+                print(f"\n{Colors.OKCYAN}[*] Scanning continuously... Updates every {interval}s (Ctrl+C to exit){Colors.ENDC}")
+            finally:
+                sys.stdout = old_stdout
+
+            # Get the complete output and strip trailing newlines
+            output = output_buffer.getvalue().rstrip('\n')
+
+            # Count actual lines
+            output_lines = output.split('\n')
+            current_line_count = len(output_lines)
+
+            # Clear previous output (except on first display)
+            if not first_display and previous_line_count > 0:
+                # Move cursor up to start of previous output
+                sys.stdout.write(f"\033[{previous_line_count}A")
+                sys.stdout.flush()
+
+            # Clear from cursor to end of screen, then print new output
+            sys.stdout.write("\033[0J")  # Clear from cursor to end of screen
+            sys.stdout.write(output)
+            sys.stdout.write('\n')  # Add exactly ONE newline at the end
+            sys.stdout.flush()
+
+            # Store line count for next iteration
+            previous_line_count = current_line_count
+            first_display = False
+
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.OKGREEN}[*] Continuous scan mode stopped by user{Colors.ENDC}")
+        print(f"Total APs discovered: {len(ap_pool)}")
+    finally:
+        # Stop background scanner
+        scan_active.clear()
+        scanner_thread.join(timeout=2)
+
+
 def list_interfaces():
     """List all available wireless interfaces on the system."""
     print("[*] Scanning for wireless interfaces...\n")
@@ -1252,9 +1701,11 @@ def main():
     src.add_argument("-i", "--iface", help="Monitor‑mode interface (e.g. wlan0mon)")
     src.add_argument("-r", "--read", help="Read from pcap instead of live capture")
     src.add_argument("-l", "--list-interfaces", action="store_true", help="List all available wireless interfaces and exit")
-    p.add_argument("-t", "--timeout", type=int, default=30, help="Sniffing duration in seconds (live mode)")
+    p.add_argument("-t", "--timeout", type=int, default=30, help="Sniffing duration in seconds (non-permanent mode only)")
+    p.add_argument("-I", "--interval", type=int, default=5, help="Scan and display refresh interval in seconds (permanent mode only, default: 5s)")
     p.add_argument("--eapol", action="store_true", help="Also mark if a 4‑Way Handshake was observed (EAPOL frames)")
     p.add_argument("--channel", type=int, help="Hint: channel to scan (set with iw/airmon externally; this is informational only)")
+    p.add_argument("-p", "--permanent", action="store_true", help="Continuous scan mode - maintains AP pool and updates display in real-time")
 
     args = p.parse_args()
 
@@ -1278,13 +1729,60 @@ def main():
         print(f"[!] ERROR: Timeout must be a positive number (got: {args.timeout})")
         sys.exit(1)
 
+    # Validate interval
+    if args.interval and args.interval <= 0:
+        print(f"[!] ERROR: Interval must be a positive number (got: {args.interval})")
+        sys.exit(1)
+
+    # Permanent mode not allowed with pcap file
+    if args.permanent and args.read:
+        print(f"[!] ERROR: Permanent mode (-p) cannot be used with pcap file (-r)")
+        sys.exit(1)
+
     monitor_enabled_by_us = False
 
     try:
         if args.read:
+            # PCAP file mode
             aps = read_pcap(args.read, args.eapol)
+            if len(aps) == 0:
+                print("\n[!] No access points detected")
+                print("[!] Possible reasons:")
+                print("    • PCAP file contains no 802.11 beacon/probe response frames")
+                print("    • PCAP was captured on a non-WiFi interface")
+            else:
+                print_report(aps)
+
+        elif args.permanent:
+            # Permanent scan mode
+            if sys.platform == 'darwin' and COREWLAN_AVAILABLE:
+                print(f"[*] macOS detected - using CoreWLAN (no monitor mode required)")
+                permanent_scan_mode(args.interval, args.eapol)
+            else:
+                # Linux - check monitor mode first
+                if not check_monitor_mode(args.iface):
+                    print(f"\n[!] Interface '{args.iface}' is not in monitor mode")
+                    print(f"[?] Do you want to enable monitor mode on {args.iface}? (y/n): ", end='', flush=True)
+                    response = input().strip().lower()
+
+                    if response == 'y':
+                        if enable_monitor_mode(args.iface):
+                            monitor_enabled_by_us = True
+                            print(f"[*] Monitor mode enabled. Starting permanent scan...")
+                        else:
+                            print(f"[!] Could not enable monitor mode automatically.")
+                            if sys.platform.startswith('linux'):
+                                print(f"[*] Try manually:")
+                                print(f"    sudo airmon-ng start {args.iface}")
+                            sys.exit(1)
+                    else:
+                        print("[!] Monitor mode is required for live capture. Exiting.")
+                        sys.exit(0)
+
+                permanent_scan_mode(args.interval, args.eapol, args.iface, args.channel)
+
         else:
-            # macOS: Use CoreWLAN if available (no monitor mode needed!)
+            # Single scan mode
             if sys.platform == 'darwin' and COREWLAN_AVAILABLE:
                 print(f"[*] macOS detected - using CoreWLAN (no monitor mode required)")
                 aps = scan_with_corewlan(args.timeout)
@@ -1314,18 +1812,14 @@ def main():
 
                 aps = sniff_live(args.iface, args.timeout, args.eapol, args.channel)
 
-        if len(aps) == 0:
-            print("\n[!] No access points detected")
-            print("[!] Possible reasons:")
-            if args.read:
-                print("    • PCAP file contains no 802.11 beacon/probe response frames")
-                print("    • PCAP was captured on a non-WiFi interface")
-            else:
+            if len(aps) == 0:
+                print("\n[!] No access points detected")
+                print("[!] Possible reasons:")
                 print(f"    • No WiFi traffic on the current channel")
                 print(f"    • Timeout ({args.timeout}s) too short")
                 print(f"    • Try increasing timeout with -t option")
-        else:
-            print_report(aps)
+            else:
+                print_report(aps)
     except KeyboardInterrupt:
         print("\n[*] Interrupted by user")
     except Exception as e:
