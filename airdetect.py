@@ -40,6 +40,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
+# Version
+VERSION = "1.0.1"
+
 try:
     from scapy.all import (  # type: ignore
         Dot11,
@@ -721,7 +724,7 @@ def get_report_line_count(aps: Dict[str, APInfo]) -> int:
     return base_lines
 
 
-def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False):
+def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None):
     if not aps:
         print("No APs discovered.")
         return
@@ -740,7 +743,10 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
 
     # Calculate dynamic column widths based on terminal size
     import shutil
-    terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+    if term_width is None:
+        terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+    else:
+        terminal_width = term_width
 
     # Fixed column widths
     id_width = 4 if show_ids else 0
@@ -782,19 +788,23 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         vendor_width = 12
         features_min = max(8, available - ssid_width - vendor_width)
 
-    # Calculate actual table width
-    table_width = (id_width + bssid_width + rssi_width + ch_width + band_width +
-                   ssid_width + vendor_width + security_width + separators + features_min)
+    # Use full terminal width minus borders (1 char ║ + 1 space on each side)
+    content_width = terminal_width - 4  # Leave space for "║ " and " ║"
 
-    print("\n" + "="*table_width)
-
-    # Print header with dynamic widths
+    # Print column header
     if show_ids:
-        print(f"{Colors.BOLD}{'ID':<{id_width}}  {'BSSID':<{bssid_width}}  {'RSSI':<{rssi_width}}  {'Ch':<{ch_width}}  {'Band':<{band_width}}  {'SSID':<{ssid_width}}  {'Vendor':<{vendor_width}}  {'Security':<{security_width}}  {'Features'}{Colors.ENDC}")
+        header = f"{'id':<{id_width}}  {'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
     else:
-        print(f"{Colors.BOLD}{'BSSID':<{bssid_width}}  {'RSSI':<{rssi_width}}  {'Ch':<{ch_width}}  {'Band':<{band_width}}  {'SSID':<{ssid_width}}  {'Vendor':<{vendor_width}}  {'Security':<{security_width}}  {'Features'}{Colors.ENDC}")
+        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
 
-    print("="*table_width)
+    # Truncate or pad header to fit content width
+    if len(header) > content_width:
+        header = header[:content_width - 3] + "..."
+    header_padding = max(0, content_width - len(header))
+    print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {Colors.BOLD}{header}{Colors.ENDC}{' ' * header_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+    # Separator line
+    print(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (terminal_width - 2)}╣{Colors.ENDC}")
 
     for bssid, ap in sorted_aps:
         # Check if AP is currently visible - if not, gray out the entire line
@@ -888,7 +898,7 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         features = []
         if is_visible:
             if ap.wps_enabled:
-                wps_status = f"{Colors.FAIL}🔓WPS{Colors.ENDC}" if ap.wps_locked is False else f"{Colors.WARNING}WPS{Colors.ENDC}"
+                wps_status = f"{Colors.FAIL}WPS!{Colors.ENDC}" if ap.wps_locked is False else f"{Colors.WARNING}WPS{Colors.ENDC}"
                 features.append(wps_status)
             if ap.pmf_required:
                 features.append(f"{Colors.OKGREEN}PMF:req{Colors.ENDC}")
@@ -905,11 +915,11 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
             if ap.handshake_observed:
                 features.append(f"{Colors.OKGREEN}4WH{Colors.ENDC}")
             if ap.deauth_count > 10:
-                features.append(f"{Colors.FAIL}⚠️DA:{ap.deauth_count}{Colors.ENDC}")
+                features.append(f"{Colors.FAIL}[!]DA:{ap.deauth_count}{Colors.ENDC}")
         else:
             # Gray out features for invisible APs
             if ap.wps_enabled:
-                wps_status = "🔓WPS" if ap.wps_locked is False else "WPS"
+                wps_status = "WPS!" if ap.wps_locked is False else "WPS"
                 features.append(f"{Colors.GRAY}{wps_status}{Colors.ENDC}")
             if ap.pmf_required:
                 features.append(f"{Colors.GRAY}PMF:req{Colors.ENDC}")
@@ -949,28 +959,21 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
             ch_padding = 3 + len(ch_str) - len(ch_plain)
             band_padding = 8 + len(band_str) - len(band_plain)
 
-        # Print line with or without ID
+        # Build line content with or without ID
         if show_ids:
-            print(f"{id_str:<{id_padding}}  {bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}")
+            line_content = f"{id_str:<{id_padding}}  {bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}"
         else:
-            print(f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}")
+            line_content = f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}"
 
-    print("="*table_width)
-    print(f"\n{Colors.BOLD}Total APs: {Colors.OKGREEN}{len(aps)}{Colors.ENDC}")
+        # Calculate visual length (without ANSI codes) for proper padding
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        line_visual_length = len(ansi_escape.sub('', line_content))
+        line_padding = max(0, content_width - line_visual_length)
 
-    wps_count = sum(1 for ap in aps.values() if ap.wps_enabled)
-    pmf_count = sum(1 for ap in aps.values() if ap.pmf_required)
-    wpa3_count = sum(1 for ap in aps.values() if 'SAE' in ap.akms)
-    hidden_count = sum(1 for ap in aps.values() if ap.hidden)
+        # Print with borders
+        print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {line_content}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
-    print(f"  • WPS enabled: {Colors.WARNING if wps_count > 0 else Colors.OKGREEN}{wps_count}{Colors.ENDC}")
-    print(f"  • PMF required: {Colors.OKGREEN if pmf_count > 0 else Colors.WARNING}{pmf_count}{Colors.ENDC}")
-    print(f"  • WPA3: {Colors.OKGREEN if wpa3_count > 0 else Colors.WARNING}{wpa3_count}{Colors.ENDC}")
-    print(f"  • Hidden SSID: {Colors.OKCYAN}{hidden_count}{Colors.ENDC}")
-
-    deauth_aps = [ap for ap in aps.values() if ap.deauth_count > 10]
-    if deauth_aps:
-        print(f"  • {Colors.FAIL}⚠️ Potential attacks detected: {len(deauth_aps)} APs with excessive deauth frames{Colors.ENDC}")
 
 
 def scan_with_corewlan(timeout: int) -> Dict[str, APInfo]:
@@ -1399,6 +1402,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     fastest_scan = float('inf')
     slowest_scan = 0.0
 
+    # Clear screen before starting
+    os.system('clear' if os.name == 'posix' else 'cls')
+
+    # Hide cursor
+    print("\033[?25l", end='', flush=True)
+
     print(f"{Colors.BOLD}{Colors.OKGREEN}[*] Continuous scan mode activated{Colors.ENDC}")
     print(f"[*] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"[*] Scan and display interval: every {interval}s")
@@ -1424,49 +1433,109 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         sys_module.stdout = output_buffer
 
         try:
-            # Display header
-            print(f"{Colors.BOLD}=== AirDetect Continuous Scan Mode ==={Colors.ENDC}")
+            import shutil
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Build content first to calculate how many lines we need
+            content_lines = []
+
+            # Top border
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (term_width - 2)}╗{Colors.ENDC}")
+
+            # Title line
+            title = f"AirDetect v{VERSION}"
+            title_padding = (term_width - 2 - len(title)) // 2
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{Colors.FAIL}{title}{Colors.ENDC}{' ' * (term_width - 2 - title_padding - len(title))}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+            # Separator
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
             # Calculate runtime
             runtime_seconds = (datetime.datetime.now() - start_time).total_seconds()
             runtime_str = format_runtime(runtime_seconds)
-
             scan_duration_str = f"{last_scan_duration:.2f}s" if last_scan_duration > 0 else "N/A"
-            # Only show "last change" if it differs from scan time (more than 2 seconds difference)
+
+            # Info line 1: Runtime on left, Last Scan on right
+            info_left = f"Runtime: {runtime_str}  |  APs: {len(current_aps)}  |  Interval: {interval}s"
+
             time_diff = abs((last_scan_time - last_change_time).total_seconds())
             if time_diff > 2:
-                print(f"Runtime: {runtime_str} | APs: {len(current_aps)} | Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str}) | Last change: {last_change_time.strftime('%H:%M:%S')}")
+                info_right = f"Last Scan: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})  |  Last Change: {last_change_time.strftime('%H:%M:%S')}"
             else:
-                print(f"Runtime: {runtime_str} | APs: {len(current_aps)} | Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})")
+                info_right = f"Last Scan: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})"
+
+            # Calculate spacing between left and right info
+            info_spacing = term_width - 4 - len(info_left) - len(info_right)
+            if info_spacing < 2:
+                # If not enough space, use two lines
+                info1_padding = term_width - 4 - len(info_left)
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_left}{' ' * info1_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                info2_padding = term_width - 4 - len(info_right)
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_right}{' ' * info2_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            else:
+                # Both on same line
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_left}{' ' * info_spacing}{info_right} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+            # Separator before table
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
             # Display results
             if len(current_aps) == 0:
-                print(f"\n{Colors.WARNING}[!] No access points detected yet... (scanning){Colors.ENDC}")
+                # No APs message with border
+                msg = "[!] No access points detected yet... (scanning)"
+                msg_padding = term_width - 4 - len(msg)
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {Colors.WARNING}{msg}{Colors.ENDC}{' ' * msg_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
             else:
-                print_report(current_aps, show_timestamp=False, show_ids=True)
+                # Capture table output
+                table_buffer = io.StringIO()
+                old_stdout_temp = sys_module.stdout
+                sys_module.stdout = table_buffer
+                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width)
+                sys_module.stdout = old_stdout_temp
+                content_lines.extend(table_buffer.getvalue().rstrip('\n').split('\n'))
 
-            # Show status
-            print(f"\n{Colors.OKCYAN}[*] Scanning continuously... Updates every {interval}s (Ctrl+C to exit){Colors.ENDC}")
+            # Calculate padding lines to push footer to bottom
+            # Footer takes 3 lines: separator, footer content, bottom border
+            footer_lines = 3
+            used_lines = len(content_lines)
+            padding_lines = max(0, term_height - used_lines - footer_lines)
+
+            # Add padding empty lines with borders
+            for _ in range(padding_lines):
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (term_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+            # Separator before footer
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
+
+            # Footer - right aligned in gray
+            footer = "q/esc/ctrl+c: exit  |  r/ctrl+l: refresh"
+            footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+            # Bottom border
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (term_width - 2)}╝{Colors.ENDC}")
+
+            # Print all content
+            for line in content_lines:
+                print(line)
         finally:
             sys_module.stdout = old_stdout
 
-        # Get the complete output and strip trailing newlines
+        # Get the complete output
         output = output_buffer.getvalue().rstrip('\n')
 
         # Count actual lines
         output_lines = output.split('\n')
         current_line_count = len(output_lines)
 
-        # Clear previous output (except on first display)
-        if not first_display and previous_line_count > 0:
-            # Move cursor up to start of previous output
-            sys_module.stdout.write(f"\033[{previous_line_count}A")
-            sys_module.stdout.flush()
-
-        # Clear from cursor to end of screen, then print new output
+        # Move cursor to home position and clear screen
+        sys_module.stdout.write("\033[H")  # Move cursor to top-left
         sys_module.stdout.write("\033[0J")  # Clear from cursor to end of screen
+
+        # Print new output
         sys_module.stdout.write(output)
-        sys_module.stdout.write('\n')  # Add exactly ONE newline at the end
         sys_module.stdout.flush()
 
         # Store line count for next iteration
@@ -1706,133 +1775,183 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     scanner_thread = threading.Thread(target=background_scanner, daemon=True)
     scanner_thread.start()
 
+    # Setup keyboard input handling for refresh
+    import select
+    import tty
+    import termios
+    import signal
+    import sys as sys_main
+
+    # Flag to trigger display refresh on terminal resize
+    resize_flag = threading.Event()
+
+    def handle_resize(signum, frame):
+        """Handle terminal resize signal."""
+        resize_flag.set()
+
+    # Register signal handler for terminal resize
+    signal.signal(signal.SIGWINCH, handle_resize)
+
+    # Save terminal settings
+    if sys_main.stdin.isatty():
+        old_settings = termios.tcgetattr(sys_main.stdin)
+        tty.setcbreak(sys_main.stdin.fileno())
+
     try:
-        # Main thread just waits for Ctrl+C
-        scanner_thread.join()
+        # Main thread handles keyboard input and resize events
+        while scanner_thread.is_alive():
+            # Check if terminal was resized
+            if resize_flag.is_set():
+                resize_flag.clear()
+                update_display()
+
+            if sys_main.stdin.isatty():
+                # Check for keyboard input with timeout
+                readable, _, _ = select.select([sys_main.stdin], [], [], 0.1)
+                if readable:
+                    char = sys_main.stdin.read(1)
+                    # Check for 'r' or Ctrl+L (ASCII 12) for refresh
+                    if char.lower() == 'r' or ord(char) == 12:
+                        # Trigger immediate display update
+                        update_display()
+                    # Check for 'q' or ESC (ASCII 27) for quit
+                    elif char.lower() == 'q' or ord(char) == 27:
+                        # Exit gracefully
+                        break
+            else:
+                # If not a tty, just wait
+                time.sleep(0.1)
 
     except KeyboardInterrupt:
-        # Calculate final statistics
-        stop_time = datetime.datetime.now()
-        total_runtime = (stop_time - start_time).total_seconds()
-        runtime_str = format_runtime(total_runtime)
+        pass
 
-        # Count visible vs disappeared APs
-        visible_aps = sum(1 for ap in ap_pool.values() if ap.currently_visible)
-        disappeared_aps = len(ap_pool) - visible_aps
+    # Restore terminal settings and show cursor
+    if sys_main.stdin.isatty():
+        termios.tcsetattr(sys_main.stdin, termios.TCSADRAIN, old_settings)
+    print("\033[?25h", end='', flush=True)  # Show cursor
 
-        print(f"\n\n{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}")
-        print(f"{Colors.BOLD}{Colors.OKGREEN}          AirDetect Scan Session Summary                      {Colors.ENDC}")
-        print(f"{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}\n")
+    # Calculate final statistics
+    stop_time = datetime.datetime.now()
+    total_runtime = (stop_time - start_time).total_seconds()
+    runtime_str = format_runtime(total_runtime)
 
-        # Time statistics
-        print(f"{Colors.BOLD}[Time Statistics]{Colors.ENDC}")
-        print(f"   Start time:    {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"   Stop time:     {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"   Total runtime: {runtime_str}")
+    # Count visible vs disappeared APs
+    visible_aps = sum(1 for ap in ap_pool.values() if ap.currently_visible)
+    disappeared_aps = len(ap_pool) - visible_aps
+
+    print(f"\n\n{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.OKGREEN}          AirDetect Scan Session Summary                      {Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}\n")
+
+    # Time statistics
+    print(f"{Colors.BOLD}[Time Statistics]{Colors.ENDC}")
+    print(f"   Start time:    {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   Stop time:     {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   Total runtime: {runtime_str}")
+    print()
+
+    # Scan statistics
+    avg_scan_duration = total_scan_time / total_scans if total_scans > 0 else 0
+    scans_per_minute = (total_scans / total_runtime * 60) if total_runtime > 0 else 0
+    print(f"{Colors.BOLD}[Scan Statistics]{Colors.ENDC}")
+    print(f"   Total scans:      {total_scans}")
+    print(f"   Average duration: {avg_scan_duration:.2f}s")
+    print(f"   Fastest scan:     {fastest_scan if fastest_scan != float('inf') else 0:.2f}s")
+    print(f"   Slowest scan:     {slowest_scan:.2f}s")
+    print(f"   Scans per minute: {scans_per_minute:.1f}")
+    print()
+
+    # AP discovery statistics
+    print(f"{Colors.BOLD}[AP Discovery]{Colors.ENDC}")
+    print(f"   Total APs discovered: {total_aps_discovered}")
+    print(f"   Currently visible:    {Colors.OKGREEN}{visible_aps}{Colors.ENDC}")
+    print(f"   Disappeared:          {Colors.FAIL if disappeared_aps > 0 else Colors.ENDC}{disappeared_aps}{Colors.ENDC}")
+    print()
+
+    # Signal statistics
+    visible_ap_list = [ap for ap in ap_pool.values() if ap.currently_visible and ap.rssi]
+    if visible_ap_list:
+        avg_rssi = sum(ap.rssi for ap in visible_ap_list) / len(visible_ap_list)
+        strongest_ap = max(visible_ap_list, key=lambda ap: ap.rssi)
+        weakest_ap = min(visible_ap_list, key=lambda ap: ap.rssi)
+
+        print(f"{Colors.BOLD}[Signal Statistics (Visible APs)]{Colors.ENDC}")
+        print(f"   Average RSSI:   {avg_rssi:.0f}dBm")
+        print(f"   Strongest:      {strongest_ap.rssi}dBm ({strongest_ap.ssid or 'Hidden'} - {strongest_ap.bssid})")
+        print(f"   Weakest:        {weakest_ap.rssi}dBm ({weakest_ap.ssid or 'Hidden'} - {weakest_ap.bssid})")
         print()
 
-        # Scan statistics
-        avg_scan_duration = total_scan_time / total_scans if total_scans > 0 else 0
-        scans_per_minute = (total_scans / total_runtime * 60) if total_runtime > 0 else 0
-        print(f"{Colors.BOLD}[Scan Statistics]{Colors.ENDC}")
-        print(f"   Total scans:      {total_scans}")
-        print(f"   Average duration: {avg_scan_duration:.2f}s")
-        print(f"   Fastest scan:     {fastest_scan if fastest_scan != float('inf') else 0:.2f}s")
-        print(f"   Slowest scan:     {slowest_scan:.2f}s")
-        print(f"   Scans per minute: {scans_per_minute:.1f}")
+    # Channel utilization statistics
+    from collections import Counter
+    band_counts = Counter(ap.band for ap in visible_ap_list if ap.band)
+    channel_counts = Counter(ap.channel for ap in visible_ap_list if ap.channel)
+
+    print(f"{Colors.BOLD}[Channel Utilization (Visible APs)]{Colors.ENDC}")
+    print(f"   2.4 GHz:  {band_counts.get('2.4 GHz', 0)} APs")
+    print(f"   5 GHz:    {band_counts.get('5 GHz', 0)} APs")
+    print(f"   6 GHz:    {band_counts.get('6 GHz', 0)} APs")
+
+    if channel_counts:
+        # Find most congested channels
+        most_congested = channel_counts.most_common(3)
+        print(f"   Most congested channels:")
+        for channel, count in most_congested:
+            congestion_color = Colors.FAIL if count >= 5 else Colors.WARNING if count >= 3 else Colors.ENDC
+            print(f"     Ch {channel}: {congestion_color}{count} APs{Colors.ENDC}")
+    print()
+
+    # Security overview statistics
+    security_counts = Counter(ap.security_label() for ap in visible_ap_list)
+    insecure_count = sum(count for sec_type, count in security_counts.items() if sec_type in ('Open', 'WEP'))
+    wps_enabled_count = sum(1 for ap in visible_ap_list if ap.wps_enabled)
+    wps_unlocked_count = sum(1 for ap in visible_ap_list if ap.wps_enabled and ap.wps_locked is False)
+    deauth_attacks = sum(1 for ap in ap_pool.values() if ap.deauth_count > 5)
+
+    print(f"{Colors.BOLD}[Security Overview (Visible APs)]{Colors.ENDC}")
+    if security_counts:
+        for sec_type, count in security_counts.most_common():
+            sec_color = Colors.FAIL if sec_type in ('Open', 'WEP') else Colors.WARNING if sec_type == 'WPA' else Colors.OKGREEN
+            print(f"   {sec_color}{sec_type:18s}{Colors.ENDC}: {count}")
+
+    if insecure_count > 0:
+        print(f"   {Colors.FAIL}[!] Insecure networks:{Colors.ENDC} {insecure_count}")
+    if wps_enabled_count > 0:
+        print(f"   WPS enabled: {wps_enabled_count} ({wps_unlocked_count} unlocked)")
+    if deauth_attacks > 0:
+        print(f"   {Colors.FAIL}[!] Possible deauth attacks:{Colors.ENDC} {deauth_attacks} APs")
+    print()
+
+    # Vendor distribution statistics
+    vendor_counts = Counter(ap.vendor for ap in visible_ap_list if ap.vendor and ap.vendor != "Unknown")
+
+    print(f"{Colors.BOLD}[Vendor Distribution (Visible APs)]{Colors.ENDC}")
+    if vendor_counts:
+        print(f"   Unique vendors: {len(vendor_counts)}")
+        print(f"   Top 5 vendors:")
+        for vendor, count in vendor_counts.most_common(5):
+            percentage = (count / len(visible_ap_list)) * 100 if visible_ap_list else 0
+            print(f"     {vendor:20s}: {count:2d} ({percentage:4.1f}%)")
+    print()
+
+    # Performance statistics
+    try:
+        import sys
+        pool_size_bytes = sys.getsizeof(ap_pool)
+        pool_size_kb = pool_size_bytes / 1024
+        updates_per_second = total_scans / total_runtime if total_runtime > 0 else 0
+
+        print(f"{Colors.BOLD}[Performance Statistics]{Colors.ENDC}")
+        print(f"   AP pool size:      {pool_size_kb:.1f} KB")
+        print(f"   Update rate:       {updates_per_second:.2f} scans/sec")
         print()
+    except Exception:
+        pass  # Skip if performance stats fail
 
-        # AP discovery statistics
-        print(f"{Colors.BOLD}[AP Discovery]{Colors.ENDC}")
-        print(f"   Total APs discovered: {total_aps_discovered}")
-        print(f"   Currently visible:    {Colors.OKGREEN}{visible_aps}{Colors.ENDC}")
-        print(f"   Disappeared:          {Colors.FAIL if disappeared_aps > 0 else Colors.ENDC}{disappeared_aps}{Colors.ENDC}")
-        print()
+    print(f"{Colors.OKCYAN}[*] Scan session ended{Colors.ENDC}\n")
 
-        # Signal statistics
-        visible_ap_list = [ap for ap in ap_pool.values() if ap.currently_visible and ap.rssi]
-        if visible_ap_list:
-            avg_rssi = sum(ap.rssi for ap in visible_ap_list) / len(visible_ap_list)
-            strongest_ap = max(visible_ap_list, key=lambda ap: ap.rssi)
-            weakest_ap = min(visible_ap_list, key=lambda ap: ap.rssi)
-
-            print(f"{Colors.BOLD}[Signal Statistics (Visible APs)]{Colors.ENDC}")
-            print(f"   Average RSSI:   {avg_rssi:.0f}dBm")
-            print(f"   Strongest:      {strongest_ap.rssi}dBm ({strongest_ap.ssid or 'Hidden'} - {strongest_ap.bssid})")
-            print(f"   Weakest:        {weakest_ap.rssi}dBm ({weakest_ap.ssid or 'Hidden'} - {weakest_ap.bssid})")
-            print()
-
-        # Channel utilization statistics
-        from collections import Counter
-        band_counts = Counter(ap.band for ap in visible_ap_list if ap.band)
-        channel_counts = Counter(ap.channel for ap in visible_ap_list if ap.channel)
-
-        print(f"{Colors.BOLD}[Channel Utilization (Visible APs)]{Colors.ENDC}")
-        print(f"   2.4 GHz:  {band_counts.get('2.4 GHz', 0)} APs")
-        print(f"   5 GHz:    {band_counts.get('5 GHz', 0)} APs")
-        print(f"   6 GHz:    {band_counts.get('6 GHz', 0)} APs")
-
-        if channel_counts:
-            # Find most congested channels
-            most_congested = channel_counts.most_common(3)
-            print(f"   Most congested channels:")
-            for channel, count in most_congested:
-                congestion_color = Colors.FAIL if count >= 5 else Colors.WARNING if count >= 3 else Colors.ENDC
-                print(f"     Ch {channel}: {congestion_color}{count} APs{Colors.ENDC}")
-        print()
-
-        # Security overview statistics
-        security_counts = Counter(ap.security_label() for ap in visible_ap_list)
-        insecure_count = sum(count for sec_type, count in security_counts.items() if sec_type in ('Open', 'WEP'))
-        wps_enabled_count = sum(1 for ap in visible_ap_list if ap.wps_enabled)
-        wps_unlocked_count = sum(1 for ap in visible_ap_list if ap.wps_enabled and ap.wps_locked is False)
-        deauth_attacks = sum(1 for ap in ap_pool.values() if ap.deauth_count > 5)
-
-        print(f"{Colors.BOLD}[Security Overview (Visible APs)]{Colors.ENDC}")
-        if security_counts:
-            for sec_type, count in security_counts.most_common():
-                sec_color = Colors.FAIL if sec_type in ('Open', 'WEP') else Colors.WARNING if sec_type == 'WPA' else Colors.OKGREEN
-                print(f"   {sec_color}{sec_type:18s}{Colors.ENDC}: {count}")
-
-        if insecure_count > 0:
-            print(f"   {Colors.FAIL}[!] Insecure networks:{Colors.ENDC} {insecure_count}")
-        if wps_enabled_count > 0:
-            print(f"   WPS enabled: {wps_enabled_count} ({wps_unlocked_count} unlocked)")
-        if deauth_attacks > 0:
-            print(f"   {Colors.FAIL}[!] Possible deauth attacks:{Colors.ENDC} {deauth_attacks} APs")
-        print()
-
-        # Vendor distribution statistics
-        vendor_counts = Counter(ap.vendor for ap in visible_ap_list if ap.vendor and ap.vendor != "Unknown")
-
-        print(f"{Colors.BOLD}[Vendor Distribution (Visible APs)]{Colors.ENDC}")
-        if vendor_counts:
-            print(f"   Unique vendors: {len(vendor_counts)}")
-            print(f"   Top 5 vendors:")
-            for vendor, count in vendor_counts.most_common(5):
-                percentage = (count / len(visible_ap_list)) * 100 if visible_ap_list else 0
-                print(f"     {vendor:20s}: {count:2d} ({percentage:4.1f}%)")
-        print()
-
-        # Performance statistics
-        try:
-            import sys
-            pool_size_bytes = sys.getsizeof(ap_pool)
-            pool_size_kb = pool_size_bytes / 1024
-            updates_per_second = total_scans / total_runtime if total_runtime > 0 else 0
-
-            print(f"{Colors.BOLD}[Performance Statistics]{Colors.ENDC}")
-            print(f"   AP pool size:      {pool_size_kb:.1f} KB")
-            print(f"   Update rate:       {updates_per_second:.2f} scans/sec")
-            print()
-        except Exception:
-            pass  # Skip if performance stats fail
-
-        print(f"{Colors.OKCYAN}[*] Scan session ended{Colors.ENDC}\n")
-    finally:
-        # Stop background scanner
-        scan_active.clear()
-        scanner_thread.join(timeout=2)
+    # Stop background scanner
+    scan_active.clear()
+    scanner_thread.join(timeout=2)
 
 
 def list_interfaces():
