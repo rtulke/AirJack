@@ -1296,16 +1296,80 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     first_display = True
     last_change_time = datetime.datetime.now()  # When AP pool actually changed
     last_scan_time = datetime.datetime.now()    # When last scan completed
+    last_scan_duration = 0.0  # Duration of last scan in seconds
 
     print(f"{Colors.BOLD}{Colors.OKGREEN}[*] Continuous scan mode activated{Colors.ENDC}")
     print(f"[*] Scan and display interval: every {interval}s")
     print(f"[*] Press Ctrl+C to exit\n")
     time.sleep(1)
 
+    # Display update function
+    def update_display():
+        """Update the terminal display with current AP pool."""
+        nonlocal previous_line_count, first_display
+
+        # Get snapshot of current AP pool
+        with ap_pool_lock:
+            current_aps = dict(ap_pool)
+
+        # Build output in a string buffer
+        import io
+        output_buffer = io.StringIO()
+
+        # Redirect stdout temporarily to capture output
+        import sys as sys_module
+        old_stdout = sys_module.stdout
+        sys_module.stdout = output_buffer
+
+        try:
+            # Display header
+            print(f"{Colors.BOLD}=== AirDetect Continuous Scan Mode ==={Colors.ENDC}")
+            scan_duration_str = f"{last_scan_duration:.2f}s" if last_scan_duration > 0 else "N/A"
+            # Only show "last change" if it differs from scan time (more than 2 seconds difference)
+            time_diff = abs((last_scan_time - last_change_time).total_seconds())
+            if time_diff > 2:
+                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str}) - Last change: {last_change_time.strftime('%H:%M:%S')}")
+            else:
+                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})")
+
+            # Display results
+            if len(current_aps) == 0:
+                print(f"\n{Colors.WARNING}[!] No access points detected yet... (scanning){Colors.ENDC}")
+            else:
+                print_report(current_aps, show_timestamp=False, show_ids=True)
+
+            # Show status
+            print(f"\n{Colors.OKCYAN}[*] Scanning continuously... Updates every {interval}s (Ctrl+C to exit){Colors.ENDC}")
+        finally:
+            sys_module.stdout = old_stdout
+
+        # Get the complete output and strip trailing newlines
+        output = output_buffer.getvalue().rstrip('\n')
+
+        # Count actual lines
+        output_lines = output.split('\n')
+        current_line_count = len(output_lines)
+
+        # Clear previous output (except on first display)
+        if not first_display and previous_line_count > 0:
+            # Move cursor up to start of previous output
+            sys_module.stdout.write(f"\033[{previous_line_count}A")
+            sys_module.stdout.flush()
+
+        # Clear from cursor to end of screen, then print new output
+        sys_module.stdout.write("\033[0J")  # Clear from cursor to end of screen
+        sys_module.stdout.write(output)
+        sys_module.stdout.write('\n')  # Add exactly ONE newline at the end
+        sys_module.stdout.flush()
+
+        # Store line count for next iteration
+        previous_line_count = current_line_count
+        first_display = False
+
     # Background scanning thread for CoreWLAN (or continuous Scapy)
     def background_scanner():
-        """Background thread that continuously updates the AP pool."""
-        nonlocal ap_pool, last_change_time, last_scan_time
+        """Background thread that continuously scans and updates display."""
+        nonlocal ap_pool, last_change_time, last_scan_time, last_scan_duration
         import sys as sys_module  # Import locally to avoid scope issues
 
         # For CoreWLAN, we need a separate client instance for thread safety
@@ -1324,9 +1388,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             try:
                 if sys_module.platform == 'darwin' and COREWLAN_AVAILABLE:
                     # CoreWLAN: Quick scan using thread-local interface
+                    scan_start = time.time()
                     networks, error = interface.scanForNetworksWithName_error_(None, None)
+                    scan_end = time.time()
 
-                    # Always update scan time (even if no networks or error)
+                    # Calculate scan duration and update timestamps
+                    last_scan_duration = scan_end - scan_start
                     last_scan_time = datetime.datetime.now()
 
                     if error:
@@ -1435,6 +1502,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                         if pool_changed:
                             last_change_time = datetime.datetime.now()
 
+                        # Update display immediately after scan
+                        update_display()
+
                     time.sleep(interval)  # Wait between CoreWLAN scans
 
                 elif iface:
@@ -1494,68 +1564,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     print(f"\n[!] Background scanner error: {e}")
                 break
 
-    # Start background scanner
+    # Start background scanner (now also handles display)
     scanner_thread = threading.Thread(target=background_scanner, daemon=True)
     scanner_thread.start()
 
     try:
-        # Collect all output in a buffer on first iteration to know exact line count
-        import io
-
-        while True:
-            # Wait for display update interval
-            time.sleep(interval)
-
-            # Get snapshot of current AP pool
-            with ap_pool_lock:
-                current_aps = dict(ap_pool)
-
-            # Build output in a string buffer
-            output_buffer = io.StringIO()
-
-            # Redirect stdout temporarily to capture output
-            import sys
-            old_stdout = sys.stdout
-            sys.stdout = output_buffer
-
-            try:
-                # Display header
-                print(f"{Colors.BOLD}=== AirDetect Continuous Scan Mode ==={Colors.ENDC}")
-                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} (last change: {last_change_time.strftime('%H:%M:%S')})")
-
-                # Display results
-                if len(current_aps) == 0:
-                    print(f"\n{Colors.WARNING}[!] No access points detected yet... (scanning){Colors.ENDC}")
-                else:
-                    print_report(current_aps, show_timestamp=False, show_ids=True)
-
-                # Show status
-                print(f"\n{Colors.OKCYAN}[*] Scanning continuously... Updates every {interval}s (Ctrl+C to exit){Colors.ENDC}")
-            finally:
-                sys.stdout = old_stdout
-
-            # Get the complete output and strip trailing newlines
-            output = output_buffer.getvalue().rstrip('\n')
-
-            # Count actual lines
-            output_lines = output.split('\n')
-            current_line_count = len(output_lines)
-
-            # Clear previous output (except on first display)
-            if not first_display and previous_line_count > 0:
-                # Move cursor up to start of previous output
-                sys.stdout.write(f"\033[{previous_line_count}A")
-                sys.stdout.flush()
-
-            # Clear from cursor to end of screen, then print new output
-            sys.stdout.write("\033[0J")  # Clear from cursor to end of screen
-            sys.stdout.write(output)
-            sys.stdout.write('\n')  # Add exactly ONE newline at the end
-            sys.stdout.flush()
-
-            # Store line count for next iteration
-            previous_line_count = current_line_count
-            first_display = False
+        # Main thread just waits for Ctrl+C
+        scanner_thread.join()
 
     except KeyboardInterrupt:
         print(f"\n\n{Colors.OKGREEN}[*] Continuous scan mode stopped by user{Colors.ENDC}")
