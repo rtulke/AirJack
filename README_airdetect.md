@@ -235,15 +235,96 @@ optional arguments:
 
 #### Security Types
 
-- **WPA3-Personal** - Most secure (SAE authentication)
-- **WPA3-Transition** - Supports both WPA2 and WPA3
-- **WPA2-Enterprise** - 802.1X authentication (RADIUS)
-- **WPA2-Personal** - PSK authentication (most common)
-- **WPA2** - Generic WPA2 (unknown AKM)
-- **WPA** - Legacy WPA version 1
-- **WEP** - Insecure legacy encryption
-- **Open** - No encryption
-- **OWE** - Opportunistic Wireless Encryption (Enhanced Open)
+AirDetect detects and displays the following WiFi security types, color-coded by security level:
+
+##### 🟢 Modern & Secure
+
+**WPA3-Personal** (Green)
+- **Description**: Latest WiFi security standard using SAE (Simultaneous Authentication of Equals / Dragonfly)
+- **Authentication**: Pre-Shared Key (password-based)
+- **Use Case**: Home networks, small offices
+- **Security Level**: Most secure - resistant to offline dictionary attacks
+- **Example**: Modern routers from 2020+
+
+**WPA3-Transition** (Green)
+- **Description**: Mixed mode supporting both WPA3 and WPA2 for backward compatibility
+- **Authentication**: SAE (for WPA3 clients) or PSK (for WPA2 clients)
+- **Use Case**: Networks transitioning to WPA3 while supporting older devices
+- **Security Level**: High - allows gradual migration to WPA3
+- **Example**: Recent routers with "WPA2/WPA3" setting
+
+**WPA2-Enterprise** (Cyan)
+- **Description**: Enterprise-grade security with 802.1X authentication via RADIUS server
+- **Authentication**: Individual user credentials (username/password or certificates)
+- **Use Case**: Corporate networks, universities, large organizations
+- **Security Level**: High - centralized user management and auditing
+- **Example**: Eduroam, corporate WiFi with AD/LDAP integration
+- **Advantages**:
+  - Per-user access control
+  - Revocable credentials without changing network password
+  - Audit logging of connections
+  - Certificate-based authentication support
+
+**OWE** (Opportunistic Wireless Encryption) (Green)
+- **Description**: Enhanced Open - encrypted open network without password
+- **Authentication**: None (automatic encryption via Diffie-Hellman)
+- **Use Case**: Public WiFi (cafés, airports) providing encryption without passwords
+- **Security Level**: High encryption, no authentication
+- **Example**: Modern public hotspots using WPA3 OWE
+
+##### 🔵 Standard & Secure
+
+**WPA2-Personal** (Cyan)
+- **Description**: Current standard for most home networks using PSK (Pre-Shared Key)
+- **Authentication**: Single shared password for all users
+- **Use Case**: Home networks, small businesses, guest WiFi
+- **Security Level**: Secure when using strong passwords (12+ characters)
+- **Example**: Most home routers (2010-2020)
+- **Note**: Vulnerable to brute-force attacks with weak passwords
+
+**WPA2** (Cyan)
+- **Description**: Generic WPA2 when AKM suite cannot be determined
+- **Authentication**: Unspecified (likely PSK or 802.1X)
+- **Use Case**: Various scenarios
+- **Security Level**: Secure (details depend on configuration)
+
+##### 🟡 Legacy & Less Secure
+
+**WPA** (Yellow)
+- **Description**: Original WPA version 1 (legacy, deprecated)
+- **Authentication**: PSK or 802.1X
+- **Use Case**: Very old devices (pre-2004)
+- **Security Level**: Less secure - vulnerable to known attacks (TKIP weaknesses)
+- **Recommendation**: Upgrade to WPA2/WPA3
+- **Example**: Old routers from 2003-2006
+
+##### 🔴 Insecure & Unencrypted
+
+**WEP** (Wired Equivalent Privacy) (Red)
+- **Description**: Obsolete encryption from 1999 - **completely broken**
+- **Authentication**: Shared WEP key
+- **Use Case**: Ancient devices (pre-2004)
+- **Security Level**: **INSECURE** - can be cracked in minutes
+- **Recommendation**: **Never use WEP** - upgrade immediately
+- **Example**: Very old routers from 1999-2004
+- **Vulnerabilities**: RC4 key reuse, weak IV, easily cracked with tools like aircrack-ng
+
+**Open** (Red)
+- **Description**: No encryption or authentication - completely unprotected
+- **Authentication**: None
+- **Use Case**: Public hotspots (legacy), guest networks
+- **Security Level**: **INSECURE** - all traffic visible to attackers
+- **Recommendation**: Use OWE instead for public networks, or WPA2/WPA3 with password
+- **Example**: Public WiFi in cafés, hotels (legacy)
+- **Risk**: Man-in-the-middle attacks, traffic sniffing, session hijacking
+
+---
+
+**Security Recommendations:**
+- ✅ **Use**: WPA3-Personal, WPA3-Transition, or WPA2-Enterprise
+- ⚠️ **Acceptable**: WPA2-Personal with strong passwords (12+ chars, mixed case, numbers, symbols)
+- ❌ **Never use**: WEP or Open networks for sensitive data
+- 🔒 **Public WiFi**: Always use VPN on Open networks; prefer OWE when available
 
 #### Feature Flags
 
