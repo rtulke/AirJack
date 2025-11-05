@@ -1343,6 +1343,23 @@ def check_monitor_mode(iface: str) -> bool:
     return False
 
 
+def format_runtime(seconds: float) -> str:
+    """Format runtime in human-readable format (days, hours, minutes, seconds)."""
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m {secs}s"
+    elif hours > 0:
+        return f"{hours}h {minutes}m {secs}s"
+    elif minutes > 0:
+        return f"{minutes}m {secs}s"
+    else:
+        return f"{secs}s"
+
+
 def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str] = None, channel: Optional[int] = None):
     """
     Permanent scan mode - continuously scan and update results in real-time.
@@ -1374,7 +1391,16 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     last_scan_time = datetime.datetime.now()    # When last scan completed
     last_scan_duration = 0.0  # Duration of last scan in seconds
 
+    # Statistics tracking
+    start_time = datetime.datetime.now()
+    total_scans = 0
+    total_aps_discovered = 0  # Total unique APs ever seen
+    total_scan_time = 0.0  # Cumulative scan duration
+    fastest_scan = float('inf')
+    slowest_scan = 0.0
+
     print(f"{Colors.BOLD}{Colors.OKGREEN}[*] Continuous scan mode activated{Colors.ENDC}")
+    print(f"[*] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"[*] Scan and display interval: every {interval}s")
     print(f"[*] Press Ctrl+C to exit\n")
     time.sleep(1)
@@ -1400,13 +1426,18 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         try:
             # Display header
             print(f"{Colors.BOLD}=== AirDetect Continuous Scan Mode ==={Colors.ENDC}")
+
+            # Calculate runtime
+            runtime_seconds = (datetime.datetime.now() - start_time).total_seconds()
+            runtime_str = format_runtime(runtime_seconds)
+
             scan_duration_str = f"{last_scan_duration:.2f}s" if last_scan_duration > 0 else "N/A"
             # Only show "last change" if it differs from scan time (more than 2 seconds difference)
             time_diff = abs((last_scan_time - last_change_time).total_seconds())
             if time_diff > 2:
-                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str}) - Last change: {last_change_time.strftime('%H:%M:%S')}")
+                print(f"Runtime: {runtime_str} | APs: {len(current_aps)} | Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str}) | Last change: {last_change_time.strftime('%H:%M:%S')}")
             else:
-                print(f"APs tracked: {len(current_aps)} - Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})")
+                print(f"Runtime: {runtime_str} | APs: {len(current_aps)} | Scanned: {last_scan_time.strftime('%H:%M:%S')} ({scan_duration_str})")
 
             # Display results
             if len(current_aps) == 0:
@@ -1471,6 +1502,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     # Calculate scan duration and update timestamps
                     last_scan_duration = scan_end - scan_start
                     last_scan_time = datetime.datetime.now()
+
+                    # Update scan statistics
+                    nonlocal total_scans, total_scan_time, fastest_scan, slowest_scan
+                    total_scans += 1
+                    total_scan_time += last_scan_duration
+                    fastest_scan = min(fastest_scan, last_scan_duration)
+                    slowest_scan = max(slowest_scan, last_scan_duration)
 
                     if error:
                         # Ignore "Resource busy" errors (happens during concurrent scans)
@@ -1584,9 +1622,10 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                     # New AP - assign ID
                                     pool_changed = True
                                     with ap_id_lock:
-                                        nonlocal next_ap_id
+                                        nonlocal next_ap_id, total_aps_discovered
                                         ap.ap_id = next_ap_id
                                         next_ap_id += 1
+                                        total_aps_discovered += 1
                                     ap.first_seen = current_time
                                     ap.last_seen = current_time
                                     # New APs are visible
@@ -1672,8 +1711,124 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         scanner_thread.join()
 
     except KeyboardInterrupt:
-        print(f"\n\n{Colors.OKGREEN}[*] Continuous scan mode stopped by user{Colors.ENDC}")
-        print(f"Total APs discovered: {len(ap_pool)}")
+        # Calculate final statistics
+        stop_time = datetime.datetime.now()
+        total_runtime = (stop_time - start_time).total_seconds()
+        runtime_str = format_runtime(total_runtime)
+
+        # Count visible vs disappeared APs
+        visible_aps = sum(1 for ap in ap_pool.values() if ap.currently_visible)
+        disappeared_aps = len(ap_pool) - visible_aps
+
+        print(f"\n\n{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}")
+        print(f"{Colors.BOLD}{Colors.OKGREEN}          AirDetect Scan Session Summary                      {Colors.ENDC}")
+        print(f"{Colors.BOLD}{Colors.OKGREEN}================================================================{Colors.ENDC}\n")
+
+        # Time statistics
+        print(f"{Colors.BOLD}[Time Statistics]{Colors.ENDC}")
+        print(f"   Start time:    {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   Stop time:     {stop_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   Total runtime: {runtime_str}")
+        print()
+
+        # Scan statistics
+        avg_scan_duration = total_scan_time / total_scans if total_scans > 0 else 0
+        scans_per_minute = (total_scans / total_runtime * 60) if total_runtime > 0 else 0
+        print(f"{Colors.BOLD}[Scan Statistics]{Colors.ENDC}")
+        print(f"   Total scans:      {total_scans}")
+        print(f"   Average duration: {avg_scan_duration:.2f}s")
+        print(f"   Fastest scan:     {fastest_scan if fastest_scan != float('inf') else 0:.2f}s")
+        print(f"   Slowest scan:     {slowest_scan:.2f}s")
+        print(f"   Scans per minute: {scans_per_minute:.1f}")
+        print()
+
+        # AP discovery statistics
+        print(f"{Colors.BOLD}[AP Discovery]{Colors.ENDC}")
+        print(f"   Total APs discovered: {total_aps_discovered}")
+        print(f"   Currently visible:    {Colors.OKGREEN}{visible_aps}{Colors.ENDC}")
+        print(f"   Disappeared:          {Colors.FAIL if disappeared_aps > 0 else Colors.ENDC}{disappeared_aps}{Colors.ENDC}")
+        print()
+
+        # Signal statistics
+        visible_ap_list = [ap for ap in ap_pool.values() if ap.currently_visible and ap.rssi]
+        if visible_ap_list:
+            avg_rssi = sum(ap.rssi for ap in visible_ap_list) / len(visible_ap_list)
+            strongest_ap = max(visible_ap_list, key=lambda ap: ap.rssi)
+            weakest_ap = min(visible_ap_list, key=lambda ap: ap.rssi)
+
+            print(f"{Colors.BOLD}[Signal Statistics (Visible APs)]{Colors.ENDC}")
+            print(f"   Average RSSI:   {avg_rssi:.0f}dBm")
+            print(f"   Strongest:      {strongest_ap.rssi}dBm ({strongest_ap.ssid or 'Hidden'} - {strongest_ap.bssid})")
+            print(f"   Weakest:        {weakest_ap.rssi}dBm ({weakest_ap.ssid or 'Hidden'} - {weakest_ap.bssid})")
+            print()
+
+        # Channel utilization statistics
+        from collections import Counter
+        band_counts = Counter(ap.band for ap in visible_ap_list if ap.band)
+        channel_counts = Counter(ap.channel for ap in visible_ap_list if ap.channel)
+
+        print(f"{Colors.BOLD}[Channel Utilization (Visible APs)]{Colors.ENDC}")
+        print(f"   2.4 GHz:  {band_counts.get('2.4 GHz', 0)} APs")
+        print(f"   5 GHz:    {band_counts.get('5 GHz', 0)} APs")
+        print(f"   6 GHz:    {band_counts.get('6 GHz', 0)} APs")
+
+        if channel_counts:
+            # Find most congested channels
+            most_congested = channel_counts.most_common(3)
+            print(f"   Most congested channels:")
+            for channel, count in most_congested:
+                congestion_color = Colors.FAIL if count >= 5 else Colors.WARNING if count >= 3 else Colors.ENDC
+                print(f"     Ch {channel}: {congestion_color}{count} APs{Colors.ENDC}")
+        print()
+
+        # Security overview statistics
+        security_counts = Counter(ap.security_label() for ap in visible_ap_list)
+        insecure_count = sum(count for sec_type, count in security_counts.items() if sec_type in ('Open', 'WEP'))
+        wps_enabled_count = sum(1 for ap in visible_ap_list if ap.wps_enabled)
+        wps_unlocked_count = sum(1 for ap in visible_ap_list if ap.wps_enabled and ap.wps_locked is False)
+        deauth_attacks = sum(1 for ap in ap_pool.values() if ap.deauth_count > 5)
+
+        print(f"{Colors.BOLD}[Security Overview (Visible APs)]{Colors.ENDC}")
+        if security_counts:
+            for sec_type, count in security_counts.most_common():
+                sec_color = Colors.FAIL if sec_type in ('Open', 'WEP') else Colors.WARNING if sec_type == 'WPA' else Colors.OKGREEN
+                print(f"   {sec_color}{sec_type:18s}{Colors.ENDC}: {count}")
+
+        if insecure_count > 0:
+            print(f"   {Colors.FAIL}[!] Insecure networks:{Colors.ENDC} {insecure_count}")
+        if wps_enabled_count > 0:
+            print(f"   WPS enabled: {wps_enabled_count} ({wps_unlocked_count} unlocked)")
+        if deauth_attacks > 0:
+            print(f"   {Colors.FAIL}[!] Possible deauth attacks:{Colors.ENDC} {deauth_attacks} APs")
+        print()
+
+        # Vendor distribution statistics
+        vendor_counts = Counter(ap.vendor for ap in visible_ap_list if ap.vendor and ap.vendor != "Unknown")
+
+        print(f"{Colors.BOLD}[Vendor Distribution (Visible APs)]{Colors.ENDC}")
+        if vendor_counts:
+            print(f"   Unique vendors: {len(vendor_counts)}")
+            print(f"   Top 5 vendors:")
+            for vendor, count in vendor_counts.most_common(5):
+                percentage = (count / len(visible_ap_list)) * 100 if visible_ap_list else 0
+                print(f"     {vendor:20s}: {count:2d} ({percentage:4.1f}%)")
+        print()
+
+        # Performance statistics
+        try:
+            import sys
+            pool_size_bytes = sys.getsizeof(ap_pool)
+            pool_size_kb = pool_size_bytes / 1024
+            updates_per_second = total_scans / total_runtime if total_runtime > 0 else 0
+
+            print(f"{Colors.BOLD}[Performance Statistics]{Colors.ENDC}")
+            print(f"   AP pool size:      {pool_size_kb:.1f} KB")
+            print(f"   Update rate:       {updates_per_second:.2f} scans/sec")
+            print()
+        except Exception:
+            pass  # Skip if performance stats fail
+
+        print(f"{Colors.OKCYAN}[*] Scan session ended{Colors.ENDC}\n")
     finally:
         # Stop background scanner
         scan_active.clear()
