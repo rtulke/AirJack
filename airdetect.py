@@ -195,13 +195,22 @@ AKM_TYPES = {
 # NEW: Helper functions
 # ------------------------------
 
-def colorize_rssi(rssi: Optional[int]) -> str:
-    """Colorize RSSI value based on signal strength."""
+def colorize_rssi(rssi: Optional[int], min_rssi: Optional[int] = None, max_rssi: Optional[int] = None) -> str:
+    """Colorize RSSI value with optional min/max range display.
+
+    Format: -45dBm (↕-65) where -45 is current, -65 is weakest seen
+    """
     if rssi is None:
         return "-"
 
+    # Build base RSSI string
     rssi_str = f"{rssi}dBm"
 
+    # Add range indicator if min/max available and different from current
+    if min_rssi is not None and min_rssi != rssi:
+        rssi_str += f" (↕{min_rssi})"
+
+    # Colorize based on current signal strength
     if rssi > -60:
         # Green for strong signal
         return f"{Colors.STRONG_SIGNAL}{rssi_str}{Colors.ENDC}"
@@ -328,7 +337,9 @@ class APInfo:
     owe_present: bool = False
     handshake_observed: bool = False
     # NEW FIELDS
-    rssi: Optional[int] = None
+    rssi: Optional[int] = None  # Current RSSI value
+    min_rssi: Optional[int] = None  # Weakest RSSI seen
+    max_rssi: Optional[int] = None  # Strongest RSSI seen
     vendor: Optional[str] = None
     wps_enabled: bool = False
     wps_locked: Optional[bool] = None
@@ -727,12 +738,62 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\n{Colors.BOLD}Last updated: {Colors.OKCYAN}{timestamp}{Colors.ENDC}")
 
-    print("\n" + "="*127)
+    # Calculate dynamic column widths based on terminal size
+    import shutil
+    terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+
+    # Fixed column widths
+    id_width = 4 if show_ids else 0
+    bssid_width = 17
+    rssi_width = 16  # Expanded for "-45dBm (↕-65)"
+    ch_width = 3
+    band_width = 8
+    security_width = 18
+    separators = 7 * 2  # Number of "  " separators
     if show_ids:
-        print(f"{Colors.BOLD}{'ID':<4}  {'BSSID':<17}  {'RSSI':<7}  {'Ch':<3}  {'Band':<8}  {'SSID':<22}  {'Vendor':<14}  {'Security':<16}  {'Features'}{Colors.ENDC}")
+        separators += 2  # Extra separator for ID column
+
+    # Calculate fixed space used
+    fixed_space = (id_width + bssid_width + rssi_width + ch_width +
+                   band_width + security_width + separators)
+
+    # Available space for SSID, Vendor, and Features
+    available = max(40, terminal_width - fixed_space - 10)  # Min 40, reserve 10 for features
+
+    # Distribute available space intelligently
+    if available >= 70:
+        # Large terminal - give full space
+        ssid_width = 32
+        vendor_width = 30
+        features_min = available - ssid_width - vendor_width
+    elif available >= 50:
+        # Medium terminal - balanced
+        ssid_width = 24
+        vendor_width = 20
+        features_min = available - ssid_width - vendor_width
+    elif available >= 35:
+        # Small terminal - prioritize SSID
+        ssid_width = 20
+        vendor_width = 15
+        features_min = max(10, available - ssid_width - vendor_width)
     else:
-        print(f"{Colors.BOLD}{'BSSID':<17}  {'RSSI':<7}  {'Ch':<3}  {'Band':<8}  {'SSID':<24}  {'Vendor':<16}  {'Security':<18}  {'Features'}{Colors.ENDC}")
-    table_width = 127 if show_ids else 120
+        # Very small terminal - minimal
+        ssid_width = 15
+        vendor_width = 12
+        features_min = max(8, available - ssid_width - vendor_width)
+
+    # Calculate actual table width
+    table_width = (id_width + bssid_width + rssi_width + ch_width + band_width +
+                   ssid_width + vendor_width + security_width + separators + features_min)
+
+    print("\n" + "="*table_width)
+
+    # Print header with dynamic widths
+    if show_ids:
+        print(f"{Colors.BOLD}{'ID':<{id_width}}  {'BSSID':<{bssid_width}}  {'RSSI':<{rssi_width}}  {'Ch':<{ch_width}}  {'Band':<{band_width}}  {'SSID':<{ssid_width}}  {'Vendor':<{vendor_width}}  {'Security':<{security_width}}  {'Features'}{Colors.ENDC}")
+    else:
+        print(f"{Colors.BOLD}{'BSSID':<{bssid_width}}  {'RSSI':<{rssi_width}}  {'Ch':<{ch_width}}  {'Band':<{band_width}}  {'SSID':<{ssid_width}}  {'Vendor':<{vendor_width}}  {'Security':<{security_width}}  {'Features'}{Colors.ENDC}")
+
     print("="*table_width)
 
     for bssid, ap in sorted_aps:
@@ -755,11 +816,14 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         else:
             bssid_colored = f"{Colors.GRAY}{bssid}{Colors.ENDC}"
 
-        # Colorize RSSI
+        # Colorize RSSI with min/max range
         if is_visible:
-            rssi_colored = colorize_rssi(ap.rssi)
+            rssi_colored = colorize_rssi(ap.rssi, ap.min_rssi, ap.max_rssi)
         else:
+            # Gray out for invisible APs
             rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
+            if ap.min_rssi is not None and ap.min_rssi != ap.rssi:
+                rssi_plain += f" (↕{ap.min_rssi})"
             rssi_colored = f"{Colors.GRAY}{rssi_plain}{Colors.ENDC}"
 
         # Basic info - gray out if not visible
@@ -770,58 +834,55 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
             ch_str = f"{Colors.GRAY}{ap.channel if ap.channel else '-'}{Colors.ENDC}"
             band_str = f"{Colors.GRAY}{ap.band or '-'}{Colors.ENDC}"
 
-        # SSID with proper truncation and colorization
-        ssid_max_len = 22 if show_ids else 24
+        # SSID with proper truncation and colorization (using dynamic width)
         if is_visible:
             if ap.hidden:
                 ssid_display = colorize_ssid("", hidden=True)
-                ssid_padding = ssid_max_len
-            elif len(ap.ssid) > ssid_max_len:
-                ssid_truncated = ap.ssid[:ssid_max_len-3] + "..."
+                ssid_padding = ssid_width
+            elif len(ap.ssid) > ssid_width:
+                ssid_truncated = ap.ssid[:ssid_width-3] + "..."
                 ssid_display = colorize_ssid(ssid_truncated)
-                ssid_padding = ssid_max_len
+                ssid_padding = ssid_width
             else:
                 ssid_display = colorize_ssid(ap.ssid)
-                ssid_padding = ssid_max_len + len(ssid_display) - len(ap.ssid)
+                ssid_padding = ssid_width + len(ssid_display) - len(ap.ssid)
         else:
             # Gray out SSID for invisible APs
             if ap.hidden:
                 ssid_text = "<hidden>"
-            elif len(ap.ssid) > ssid_max_len:
-                ssid_text = ap.ssid[:ssid_max_len-3] + "..."
+            elif len(ap.ssid) > ssid_width:
+                ssid_text = ap.ssid[:ssid_width-3] + "..."
             else:
                 ssid_text = ap.ssid
             ssid_display = f"{Colors.GRAY}{ssid_text}{Colors.ENDC}"
-            ssid_padding = ssid_max_len + len(ssid_display) - len(ssid_text)
+            ssid_padding = ssid_width + len(ssid_display) - len(ssid_text)
 
-        # Vendor with proper truncation and colorization
-        vendor_max_len = 14 if show_ids else 16
+        # Vendor with proper truncation and colorization (using dynamic width)
         if is_visible:
-            if ap.vendor and len(ap.vendor) > vendor_max_len:
-                vendor_truncated = ap.vendor[:vendor_max_len-3] + "..."
+            if ap.vendor and len(ap.vendor) > vendor_width:
+                vendor_truncated = ap.vendor[:vendor_width-3] + "..."
                 vendor_display = colorize_vendor(vendor_truncated)
-                vendor_padding = vendor_max_len
+                vendor_padding = vendor_width
             else:
                 vendor_text = ap.vendor or "Unknown"
                 vendor_display = colorize_vendor(vendor_text)
-                vendor_padding = vendor_max_len + len(vendor_display) - len(vendor_text)
+                vendor_padding = vendor_width + len(vendor_display) - len(vendor_text)
         else:
             # Gray out vendor for invisible APs
-            if ap.vendor and len(ap.vendor) > vendor_max_len:
-                vendor_text = ap.vendor[:vendor_max_len-3] + "..."
+            if ap.vendor and len(ap.vendor) > vendor_width:
+                vendor_text = ap.vendor[:vendor_width-3] + "..."
             else:
                 vendor_text = ap.vendor or "Unknown"
             vendor_display = f"{Colors.GRAY}{vendor_text}{Colors.ENDC}"
-            vendor_padding = vendor_max_len + len(vendor_display) - len(vendor_text)
+            vendor_padding = vendor_width + len(vendor_display) - len(vendor_text)
 
-        # Security label - colorized
+        # Security label - colorized (using dynamic width)
         sec = ap.security_label()
         if is_visible:
             sec_colored = colorize_security(sec)
         else:
             sec_colored = f"{Colors.GRAY}{sec}{Colors.ENDC}"
-        sec_max_len = 16 if show_ids else 18
-        sec_padding = sec_max_len + len(sec_colored) - len(sec)
+        sec_padding = security_width + len(sec_colored) - len(sec)
 
         # Features column
         features = []
@@ -870,11 +931,13 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         features_str = " ".join(features) if features else "-"
 
         # Calculate BSSID padding for ANSI codes
-        bssid_padding = 17 + len(bssid_colored) - len(bssid)
+        bssid_padding = bssid_width + len(bssid_colored) - len(bssid)
 
-        # Calculate RSSI padding - simpler approach
+        # Calculate RSSI padding - account for min/max range display
         rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
-        rssi_padding = 7 + len(rssi_colored) - len(rssi_plain)
+        if ap.min_rssi is not None and ap.min_rssi != ap.rssi:
+            rssi_plain += f" (↕{ap.min_rssi})"
+        rssi_padding = rssi_width + len(rssi_colored) - len(rssi_plain)
 
         # Calculate channel and band padding for ANSI codes
         if is_visible:
@@ -1491,9 +1554,28 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                     ap.last_seen = current_time
                                     # Mark as currently visible
                                     ap.currently_visible = True
-                                    # Keep the strongest RSSI seen
-                                    if ap.rssi and old_ap.rssi:
-                                        ap.rssi = max(ap.rssi, old_ap.rssi)
+                                    # Track RSSI: current, min, and max
+                                    if ap.rssi:
+                                        # Keep current RSSI as-is (latest scan value)
+                                        # Update min/max RSSI
+                                        if old_ap.min_rssi is None:
+                                            ap.min_rssi = ap.rssi
+                                        else:
+                                            ap.min_rssi = min(ap.rssi, old_ap.min_rssi)
+
+                                        if old_ap.max_rssi is None:
+                                            ap.max_rssi = ap.rssi
+                                        else:
+                                            ap.max_rssi = max(ap.rssi, old_ap.max_rssi)
+                                    else:
+                                        # No RSSI in new scan, keep old values
+                                        ap.rssi = old_ap.rssi
+                                        ap.min_rssi = old_ap.min_rssi
+                                        ap.max_rssi = old_ap.max_rssi
+                                    # Update channel and band (can change)
+                                    if ap.channel:
+                                        old_ap.channel = ap.channel
+                                        old_ap.band = ap.band
                                     # Merge other properties
                                     ap.handshake_observed = ap.handshake_observed or old_ap.handshake_observed
                                     ap.deauth_count += old_ap.deauth_count
@@ -1509,6 +1591,10 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                     ap.last_seen = current_time
                                     # New APs are visible
                                     ap.currently_visible = True
+                                    # Initialize min/max RSSI for new AP
+                                    if ap.rssi:
+                                        ap.min_rssi = ap.rssi
+                                        ap.max_rssi = ap.rssi
                                 ap_pool[bssid] = ap
 
                         # Update change time if pool changed
