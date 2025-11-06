@@ -1393,6 +1393,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     last_change_time = datetime.datetime.now()  # When AP pool actually changed
     last_scan_time = datetime.datetime.now()    # When last scan completed
     last_scan_duration = 0.0  # Duration of last scan in seconds
+    popup_active = threading.Event()  # Flag to prevent display updates while popup is shown
 
     # Statistics tracking
     start_time = datetime.datetime.now()
@@ -1418,6 +1419,10 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     def update_display():
         """Update the terminal display with current AP pool."""
         nonlocal previous_line_count, first_display
+
+        # Don't update if popup is active
+        if popup_active.is_set():
+            return
 
         # Get snapshot of current AP pool
         with ap_pool_lock:
@@ -1510,7 +1515,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
             # Footer - right aligned in gray
-            footer = "q/esc/ctrl+c: exit  |  r/ctrl+l: refresh"
+            footer = "h: help  |  q/esc/ctrl+c: exit  |  r/ctrl+l: refresh"
             footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
@@ -1541,6 +1546,83 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         # Store line count for next iteration
         previous_line_count = current_line_count
         first_display = False
+
+    def show_help_popup():
+        """Display help popup with keyboard shortcuts."""
+        # Set flag to prevent background display updates
+        popup_active.set()
+
+        try:
+            import shutil
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Help content
+            help_lines = [
+                "KEYBOARD SHORTCUTS",
+                "",
+                "Navigation & Control:",
+                "  h          - Show this help",
+                "  q          - Quit/Exit",
+                "  ESC        - Quit/Exit",
+                "  Ctrl+C     - Quit/Exit",
+                "",
+                "Display:",
+                "  r          - Refresh display",
+                "  Ctrl+L     - Refresh display",
+                "",
+                "Note: Display auto-refreshes on window resize",
+                "",
+                "Press any key to close..."
+            ]
+
+            # Calculate popup dimensions
+            popup_width = 50
+            popup_height = len(help_lines) + 4  # +4 for borders and padding
+
+            # Calculate centered position
+            popup_x = (term_width - popup_width) // 2
+            popup_y = (term_height - popup_height) // 2
+
+            # Build popup
+            popup_lines = []
+
+            # Top border
+            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+            # Empty line
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Content lines
+            for i, line in enumerate(help_lines):
+                row = popup_y + 2 + i
+                # Center text within popup
+                line_padding = (popup_width - 2 - len(line)) // 2
+                remaining_padding = popup_width - 2 - len(line) - line_padding
+                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * line_padding}{Colors.BOLD if i == 0 else ''}{line}{Colors.ENDC if i == 0 else ''}{' ' * remaining_padding}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Empty line
+            popup_lines.append(f"\033[{popup_y + popup_height - 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Bottom border
+            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+            # Display popup
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for keypress
+            import sys as sys_main
+            if sys_main.stdin.isatty():
+                sys_main.stdin.read(1)
+
+        finally:
+            # Clear flag to allow display updates again
+            popup_active.clear()
+
+            # Refresh display to clear popup
+            update_display()
 
     # Background scanning thread for CoreWLAN (or continuous Scapy)
     def background_scanner():
@@ -1810,8 +1892,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 readable, _, _ = select.select([sys_main.stdin], [], [], 0.1)
                 if readable:
                     char = sys_main.stdin.read(1)
+                    # Check for 'h' for help
+                    if char.lower() == 'h':
+                        # Show help popup
+                        show_help_popup()
                     # Check for 'r' or Ctrl+L (ASCII 12) for refresh
-                    if char.lower() == 'r' or ord(char) == 12:
+                    elif char.lower() == 'r' or ord(char) == 12:
                         # Trigger immediate display update
                         update_display()
                     # Check for 'q' or ESC (ASCII 27) for quit
