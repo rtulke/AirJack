@@ -1540,13 +1540,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             # Separator before footer
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
-            # Footer - right aligned in gray
-            footer = "↑/↓/PgUp/PgDn/Home/End: navigate  |  Enter: menu  |  h: help  |  q: exit  |  r: refresh"
+            # Footer - right aligned in gray (only essential keys)
+            footer = "Enter: menu  |  h: help  |  q: exit"
             footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
-            if footer_padding < 0:
-                # Terminal too narrow, use compact version
-                footer = "↑↓PgUp/Dn/Home/End  Enter:menu  h:help  q:quit  r:refresh"
-                footer_padding = term_width - 4 - len(footer)
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
             # Bottom border
@@ -1592,10 +1588,17 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             help_lines = [
                 "KEYBOARD SHORTCUTS",
                 "",
-                "Navigation & Control:",
+                "Navigation:",
+                "  ↑/↓        - Move selection up/down (1 line)",
+                "  Page Up    - Jump up 5 lines",
+                "  Page Down  - Jump down 5 lines",
+                "  Home       - Jump to first AP",
+                "  End        - Jump to last AP",
+                "",
+                "Actions:",
+                "  Enter      - Open AP menu (Statistics/Info/Signal)",
                 "  h          - Show this help",
-                "  q          - Quit/Exit",
-                "  ESC        - Quit/Exit",
+                "  q / ESC    - Quit/Exit",
                 "  Ctrl+C     - Quit/Exit",
                 "",
                 "Display:",
