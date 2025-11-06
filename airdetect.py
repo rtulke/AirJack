@@ -543,6 +543,11 @@ def process_mgmt_frame(pkt, aps: Dict[str, APInfo]):
                 # Update RSSI (keep strongest signal)
                 if ap.rssi is None or rssi > ap.rssi:
                     ap.rssi = rssi
+                    # Record RSSI history
+                    ap.rssi_history.append((time.time(), rssi))
+                    # Keep history limited to last 100 entries
+                    if len(ap.rssi_history) > 100:
+                        ap.rssi_history = ap.rssi_history[-100:]
         except Exception:
             pass
 
@@ -1536,8 +1541,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
             # Footer - right aligned in gray
-            footer = "↑/↓: navigate  |  h: help  |  q: exit  |  r: refresh"
+            footer = "↑/↓/PgUp/PgDn/Home/End: navigate  |  Enter: menu  |  h: help  |  q: exit  |  r: refresh"
             footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
+            if footer_padding < 0:
+                # Terminal too narrow, use compact version
+                footer = "↑↓PgUp/Dn/Home/End  Enter:menu  h:help  q:quit  r:refresh"
+                footer_padding = term_width - 4 - len(footer)
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
             # Bottom border
@@ -1643,6 +1652,448 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             popup_active.clear()
 
             # Refresh display to clear popup
+            update_display()
+
+    def show_ap_menu(ap_bssid: str):
+        """Show action menu for selected AP."""
+        popup_active.set()
+
+        try:
+            # Get AP info - make a copy to avoid holding lock
+            with ap_pool_lock:
+                if ap_bssid not in ap_pool:
+                    popup_active.clear()
+                    return
+                # Create a copy of the AP object to avoid holding lock during display
+                from copy import copy
+                ap = copy(ap_pool[ap_bssid])
+
+            import shutil
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Menu options
+            menu_items = [
+                "Statistics",
+                "Information",
+                "Signal Strength"
+            ]
+
+            selected_menu_index = 0
+            popup_width = 40
+            popup_height = len(menu_items) + 6  # Title + items + padding
+
+            # Calculate centered position
+            popup_x = (term_width - popup_width) // 2
+            popup_y = (term_height - popup_height) // 2
+
+            # Menu loop
+            while True:
+                popup_lines = []
+
+                # Top border
+                popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+                # Title
+                title = f"AP: {ap.ssid or ap_bssid[:17]}"
+                title_padding = (popup_width - 2 - len(title)) // 2
+                remaining = popup_width - 2 - len(title) - title_padding
+                popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+                # Separator
+                popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+
+                # Empty line
+                popup_lines.append(f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+                # Menu items
+                for i, item in enumerate(menu_items):
+                    row = popup_y + 4 + i
+                    is_selected = (i == selected_menu_index)
+
+                    if is_selected:
+                        # Highlight selected item
+                        item_text = f"  ▶ {item}"
+                        bg = "\033[48;5;240m"
+                        bg_reset = "\033[49m"
+                    else:
+                        item_text = f"    {item}"
+                        bg = ""
+                        bg_reset = ""
+
+                    item_padding = popup_width - 2 - len(item_text)
+                    popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{bg}{item_text}{' ' * item_padding}{bg_reset}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+                # Empty line
+                popup_lines.append(f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+                # Footer
+                footer = "↑/↓: navigate  Enter: select  ESC: close"
+                footer_padding = (popup_width - 2 - len(footer)) // 2
+                remaining = popup_width - 2 - len(footer) - footer_padding
+                popup_lines.append(f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+                # Bottom border
+                popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+                # Display popup
+                for line in popup_lines:
+                    print(line, end='', flush=True)
+
+                # Wait for input
+                import sys as sys_main
+                if sys_main.stdin.isatty():
+                    # Read input
+                    import fcntl
+                    import os as os_module
+
+                    fd = sys_main.stdin.fileno()
+                    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os_module.O_NONBLOCK)
+
+                    # Wait for input
+                    readable, _, _ = select.select([sys_main.stdin], [], [], 10)
+                    if readable:
+                        try:
+                            input_chars = sys_main.stdin.read()
+                        except:
+                            input_chars = ''
+                        finally:
+                            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+                        if input_chars == '\x1b[A':  # Up arrow
+                            selected_menu_index = max(0, selected_menu_index - 1)
+                        elif input_chars == '\x1b[B':  # Down arrow
+                            selected_menu_index = min(len(menu_items) - 1, selected_menu_index + 1)
+                        elif input_chars == '\n' or input_chars == '\r':  # Enter
+                            # Execute selected action
+                            if selected_menu_index == 0:
+                                show_statistics_popup(ap)
+                            elif selected_menu_index == 1:
+                                show_information_popup(ap)
+                            elif selected_menu_index == 2:
+                                show_signal_strength_popup(ap)
+                            break
+                        elif input_chars == '\x1b':  # ESC
+                            break
+                    else:
+                        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+        finally:
+            popup_active.clear()
+            update_display()
+
+    def show_statistics_popup(ap):
+        """Show statistics for selected AP."""
+        popup_active.set()
+
+        try:
+            import shutil
+            import datetime
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Build statistics
+            stats_lines = [
+                f"BSSID: {ap.bssid}",
+                f"SSID: {ap.ssid or '(hidden)'}",
+                "",
+                "Signal Statistics:",
+                f"  Current RSSI: {ap.rssi}dBm" if ap.rssi else "  Current RSSI: N/A",
+                f"  Min RSSI: {ap.min_rssi}dBm" if ap.min_rssi else "  Min RSSI: N/A",
+                f"  Max RSSI: {ap.max_rssi}dBm" if ap.max_rssi else "  Max RSSI: N/A",
+                f"  Range: {ap.max_rssi - ap.min_rssi}dB" if (ap.max_rssi and ap.min_rssi) else "  Range: N/A",
+                "",
+                "Visibility:",
+                f"  Currently Visible: {'Yes' if ap.currently_visible else 'No'}",
+                f"  First Seen: {datetime.datetime.fromtimestamp(ap.first_seen).strftime('%H:%M:%S')}" if ap.first_seen else "  First Seen: N/A",
+                f"  Last Seen: {datetime.datetime.fromtimestamp(ap.last_seen).strftime('%H:%M:%S')}" if ap.last_seen else "  Last Seen: N/A",
+                "",
+                "Activity:",
+                f"  Deauth Frames: {ap.deauth_count}",
+                f"  Disassoc Frames: {ap.disassoc_count}",
+                f"  Handshake Observed: {'Yes' if ap.handshake_observed else 'No'}",
+                "",
+                "Press any key to close..."
+            ]
+
+            popup_width = 60
+            popup_height = len(stats_lines) + 4
+
+            popup_x = (term_width - popup_width) // 2
+            popup_y = (term_height - popup_height) // 2
+
+            popup_lines = []
+
+            # Top border
+            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+            # Title
+            title = "AP STATISTICS"
+            title_padding = (popup_width - 2 - len(title)) // 2
+            remaining = popup_width - 2 - len(title) - title_padding
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Separator
+            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+
+            # Content lines
+            for i, line in enumerate(stats_lines):
+                row = popup_y + 3 + i
+                line_padding = popup_width - 2 - len(line)
+                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC} {line}{' ' * line_padding} {Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Bottom border
+            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+            # Display popup
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for keypress
+            import sys as sys_main
+            if sys_main.stdin.isatty():
+                sys_main.stdin.read(1)
+
+        finally:
+            popup_active.clear()
+            update_display()
+
+    def show_information_popup(ap):
+        """Show detailed information for selected AP."""
+        popup_active.set()
+
+        try:
+            import shutil
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Build security features checklist
+            security_features = []
+            if ap.rsn_present:
+                security_features.append("[X] WPA2/WPA3 (RSN)")
+            else:
+                security_features.append("[ ] WPA2/WPA3 (RSN)")
+
+            if ap.wpa1_present:
+                security_features.append("[X] WPA1")
+            else:
+                security_features.append("[ ] WPA1")
+
+            if ap.privacy_bit:
+                security_features.append("[X] Privacy/Encryption")
+            else:
+                security_features.append("[ ] Privacy/Encryption")
+
+            if ap.pmf_required:
+                security_features.append("[X] PMF Required (802.11w)")
+            elif ap.pmf_capable:
+                security_features.append("[X] PMF Capable (802.11w)")
+            else:
+                security_features.append("[ ] PMF (802.11w)")
+
+            if ap.ft_present:
+                security_features.append("[X] Fast Transition (802.11r)")
+            else:
+                security_features.append("[ ] Fast Transition (802.11r)")
+
+            # Build features checklist
+            other_features = []
+            if ap.wps_enabled:
+                wps_status = "Unlocked" if ap.wps_locked is False else "Locked" if ap.wps_locked else "Unknown"
+                other_features.append(f"[X] WPS ({wps_status})")
+            else:
+                other_features.append("[ ] WPS")
+
+            if ap.rrm_enabled:
+                other_features.append("[X] RRM (802.11k)")
+            else:
+                other_features.append("[ ] RRM (802.11k)")
+
+            if ap.bss_transition:
+                other_features.append("[X] BSS Transition (802.11v)")
+            else:
+                other_features.append("[ ] BSS Transition (802.11v)")
+
+            # Build info lines
+            info_lines = [
+                "Basic Information:",
+                f"  BSSID: {ap.bssid}",
+                f"  SSID: {ap.ssid or '(hidden)'}",
+                f"  Channel: {ap.channel}" if ap.channel else "  Channel: N/A",
+                f"  Band: {ap.band}" if ap.band else "  Band: N/A",
+                f"  Vendor: {ap.vendor}" if ap.vendor else "  Vendor: Unknown",
+                "",
+                f"Security Type: {ap.security_label()}",
+                "",
+                "Security Features:",
+            ]
+            info_lines.extend([f"  {f}" for f in security_features])
+            info_lines.append("")
+            info_lines.append("Other Features:")
+            info_lines.extend([f"  {f}" for f in other_features])
+            info_lines.append("")
+            info_lines.append("Ciphers:")
+            if ap.pairwise_ciphers:
+                info_lines.append(f"  Pairwise: {', '.join(ap.pairwise_ciphers)}")
+            if ap.group_cipher:
+                info_lines.append(f"  Group: {ap.group_cipher}")
+            if ap.akms:
+                info_lines.append(f"  AKMs: {', '.join(ap.akms)}")
+            info_lines.append("")
+            info_lines.append("Press any key to close...")
+
+            popup_width = 70
+            popup_height = min(term_height - 4, len(info_lines) + 4)
+
+            popup_x = (term_width - popup_width) // 2
+            popup_y = (term_height - popup_height) // 2
+
+            popup_lines = []
+
+            # Top border
+            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+            # Title
+            title = "AP INFORMATION"
+            title_padding = (popup_width - 2 - len(title)) // 2
+            remaining = popup_width - 2 - len(title) - title_padding
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Separator
+            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+
+            # Content lines (with scrolling if needed)
+            display_lines = info_lines[:popup_height - 4]
+            for i, line in enumerate(display_lines):
+                row = popup_y + 3 + i
+                line_padding = max(0, popup_width - 2 - len(line))
+                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC} {line[:popup_width-4]}{' ' * line_padding} {Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Bottom border
+            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+            # Display popup
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for keypress
+            import sys as sys_main
+            if sys_main.stdin.isatty():
+                sys_main.stdin.read(1)
+
+        finally:
+            popup_active.clear()
+            update_display()
+
+    def show_signal_strength_popup(ap):
+        """Show signal strength history visualization."""
+        popup_active.set()
+
+        try:
+            import shutil
+            term_size = shutil.get_terminal_size(fallback=(120, 24))
+            term_width = term_size.columns
+            term_height = term_size.lines
+
+            # Get RSSI history
+            history = ap.rssi_history[-50:] if ap.rssi_history else []
+
+            # Build visualization
+            vis_lines = [
+                f"Signal Strength History - {ap.ssid or ap.bssid[:17]}",
+                f"Current: {ap.rssi}dBm  |  Min: {ap.min_rssi}dBm  |  Max: {ap.max_rssi}dBm" if ap.rssi else "No data available",
+                "",
+            ]
+
+            if history:
+                # Create ASCII graph
+                # Determine scale
+                rssi_values = [rssi for _, rssi in history]
+                min_val = min(rssi_values)
+                max_val = max(rssi_values)
+                range_val = max_val - min_val if max_val != min_val else 1
+
+                # Graph height
+                graph_height = 15
+                graph_width = min(60, len(history))
+
+                # Create graph
+                for row in range(graph_height):
+                    threshold = max_val - (row * range_val / graph_height)
+                    line = "  "
+
+                    for i in range(graph_width):
+                        if i < len(history):
+                            _, rssi = history[-(graph_width - i)]
+                            if rssi >= threshold:
+                                line += "█"
+                            else:
+                                line += " "
+                        else:
+                            line += " "
+
+                    # Add scale
+                    line += f"  {int(threshold)}dBm"
+                    vis_lines.append(line)
+
+                # Time axis
+                vis_lines.append("  " + "─" * graph_width)
+                if len(history) > 1:
+                    import datetime
+                    first_time = datetime.datetime.fromtimestamp(history[0][0])
+                    last_time = datetime.datetime.fromtimestamp(history[-1][0])
+                    vis_lines.append(f"  {first_time.strftime('%H:%M:%S')}" + " " * (graph_width - 18) + f"{last_time.strftime('%H:%M:%S')}")
+            else:
+                vis_lines.append("  No signal history data available yet.")
+
+            vis_lines.append("")
+            vis_lines.append("Press any key to close...")
+
+            popup_width = 80
+            popup_height = min(term_height - 4, len(vis_lines) + 4)
+
+            popup_x = (term_width - popup_width) // 2
+            popup_y = (term_height - popup_height) // 2
+
+            popup_lines = []
+
+            # Top border
+            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+            # Title
+            title = "SIGNAL STRENGTH HISTORY"
+            title_padding = (popup_width - 2 - len(title)) // 2
+            remaining = popup_width - 2 - len(title) - title_padding
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Separator
+            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+
+            # Content lines
+            display_lines = vis_lines[:popup_height - 4]
+            for i, line in enumerate(display_lines):
+                row = popup_y + 3 + i
+                line_padding = max(0, popup_width - 2 - len(line))
+                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{line[:popup_width-2]}{' ' * line_padding}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+
+            # Bottom border
+            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+            # Display popup
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for keypress
+            import sys as sys_main
+            if sys_main.stdin.isatty():
+                sys_main.stdin.read(1)
+
+        finally:
+            popup_active.clear()
             update_display()
 
     # Background scanning thread for CoreWLAN (or continuous Scapy)
@@ -1767,6 +2218,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                     # Track RSSI: current, min, and max
                                     if ap.rssi:
                                         # Keep current RSSI as-is (latest scan value)
+                                        # Record RSSI history
+                                        ap.rssi_history = old_ap.rssi_history.copy()
+                                        ap.rssi_history.append((time.time(), ap.rssi))
+                                        # Keep history limited to last 100 entries
+                                        if len(ap.rssi_history) > 100:
+                                            ap.rssi_history = ap.rssi_history[-100:]
                                         # Update min/max RSSI
                                         if old_ap.min_rssi is None:
                                             ap.min_rssi = ap.rssi
@@ -1782,6 +2239,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                         ap.rssi = old_ap.rssi
                                         ap.min_rssi = old_ap.min_rssi
                                         ap.max_rssi = old_ap.max_rssi
+                                        ap.rssi_history = old_ap.rssi_history.copy()
                                     # Update channel and band (can change)
                                     if ap.channel:
                                         old_ap.channel = ap.channel
@@ -1846,8 +2304,20 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                         ap.first_seen = old_ap.first_seen
                                         # Update last_seen
                                         ap.last_seen = current_time
+                                        # Merge RSSI history from old AP
+                                        ap.rssi_history = old_ap.rssi_history.copy()
                                         if ap.rssi and old_ap.rssi:
                                             ap.rssi = max(ap.rssi, old_ap.rssi)
+                                            # Record RSSI history
+                                            ap.rssi_history.append((time.time(), ap.rssi))
+                                            # Keep history limited to last 100 entries
+                                            if len(ap.rssi_history) > 100:
+                                                ap.rssi_history = ap.rssi_history[-100:]
+                                        elif ap.rssi:
+                                            # New RSSI but no old RSSI
+                                            ap.rssi_history.append((time.time(), ap.rssi))
+                                            if len(ap.rssi_history) > 100:
+                                                ap.rssi_history = ap.rssi_history[-100:]
                                         ap.handshake_observed = ap.handshake_observed or old_ap.handshake_observed
                                         ap.deauth_count += old_ap.deauth_count
                                     else:
@@ -1931,7 +2401,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     if not input_chars:
                         continue
 
-                    # Check for escape sequences (arrow keys)
+                    # Check for escape sequences (arrow keys, page up/down, home/end)
                     if input_chars == '\x1b[A':  # Up arrow
                         navigation_enabled = True
                         with ap_pool_lock:
@@ -1946,6 +2416,45 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                         if ap_count > 0:
                             selected_index = min(ap_count - 1, selected_index + 1)
                             update_display()
+                    elif input_chars == '\x1b[5~':  # Page Up
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = max(0, selected_index - 5)
+                            update_display()
+                    elif input_chars == '\x1b[6~':  # Page Down
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = min(ap_count - 1, selected_index + 5)
+                            update_display()
+                    elif input_chars == '\x1b[H' or input_chars == '\x1b[1~':  # Home
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = 0
+                            update_display()
+                    elif input_chars == '\x1b[F' or input_chars == '\x1b[4~':  # End
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = ap_count - 1
+                            update_display()
+                    elif input_chars == '\n' or input_chars == '\r':  # Enter
+                        # Show AP menu for selected item
+                        if navigation_enabled and selected_index >= 0:
+                            ap_bssid = None
+                            with ap_pool_lock:
+                                sorted_aps = sorted(ap_pool.items(), key=lambda x: x[1].ap_id or 0)
+                                if 0 <= selected_index < len(sorted_aps):
+                                    ap_bssid = sorted_aps[selected_index][0]
+                            # Call show_ap_menu OUTSIDE the lock
+                            if ap_bssid:
+                                show_ap_menu(ap_bssid)
                     elif input_chars == '\x1b' or input_chars.lower() == 'q':
                         # ESC or q - quit
                         break
