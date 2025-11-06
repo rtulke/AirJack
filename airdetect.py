@@ -1573,21 +1573,76 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         previous_line_count = current_line_count
         first_display = False
 
+    def create_popup(title: str, content_lines: list, center_title: bool = True, left_padding: int = 2):
+        """
+        Create and display a popup with dynamic sizing.
+
+        Args:
+            title: Popup title (shown at top)
+            content_lines: List of content lines to display
+            center_title: Whether to center the title (default: True)
+            left_padding: Left padding for content lines (default: 2)
+
+        Returns:
+            Tuple of (popup_lines, popup_width, popup_height, popup_x, popup_y)
+        """
+        import shutil
+        term_size = shutil.get_terminal_size(fallback=(120, 24))
+        term_width = term_size.columns
+        term_height = term_size.lines
+
+        # Calculate dynamic width based on content
+        max_line_len = max(len(line) for line in content_lines) if content_lines else 20
+        title_len = len(title)
+        popup_width = max(max_line_len + left_padding + 2, title_len + 4, 40)  # +2 for borders, min 40
+        popup_width = min(popup_width, term_width - 4)  # Don't exceed terminal width
+
+        # Calculate height
+        popup_height = len(content_lines) + 4  # +4 for title, borders, padding
+
+        # Calculate centered position
+        popup_x = (term_width - popup_width) // 2
+        popup_y = max(1, (term_height - popup_height) // 2)
+
+        popup_lines = []
+
+        # Top border (green like table borders)
+        popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+
+        # Title line
+        if center_title:
+            title_padding = (popup_width - 2 - len(title)) // 2
+            remaining = popup_width - 2 - len(title) - title_padding
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+        else:
+            title_text = f" {title} "
+            remaining = popup_width - 2 - len(title_text)
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{Colors.BOLD}{title_text}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+        # Separator
+        popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+
+        # Content lines (left-aligned with extra space on both sides)
+        for i, line in enumerate(content_lines):
+            row = popup_y + 3 + i
+            # Add 1 space on left + padding + content, then 1 space on right
+            line_text = ' ' + (' ' * left_padding) + line
+            remaining_space = popup_width - 2 - len(line_text) - 1  # -1 for right space
+            popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+
+        # Bottom border
+        popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+
+        return popup_lines, popup_width, popup_height, popup_x, popup_y
+
     def show_help_popup():
         """Display help popup with keyboard shortcuts."""
         # Set flag to prevent background display updates
         popup_active.set()
 
         try:
-            import shutil
-            term_size = shutil.get_terminal_size(fallback=(120, 24))
-            term_width = term_size.columns
-            term_height = term_size.lines
-
             # Help content
             help_lines = [
-                "KEYBOARD SHORTCUTS",
-                "",
                 "Navigation:",
                 "  ↑/↓        - Move selection up/down (1 line)",
                 "  Page Up    - Jump up 5 lines",
@@ -1610,36 +1665,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 "Press any key to close..."
             ]
 
-            # Calculate popup dimensions
-            popup_width = 50
-            popup_height = len(help_lines) + 4  # +4 for borders and padding
-
-            # Calculate centered position
-            popup_x = (term_width - popup_width) // 2
-            popup_y = (term_height - popup_height) // 2
-
-            # Build popup
-            popup_lines = []
-
-            # Top border
-            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
-
-            # Empty line
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Content lines
-            for i, line in enumerate(help_lines):
-                row = popup_y + 2 + i
-                # Center text within popup
-                line_padding = (popup_width - 2 - len(line)) // 2
-                remaining_padding = popup_width - 2 - len(line) - line_padding
-                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * line_padding}{Colors.BOLD if i == 0 else ''}{line}{Colors.ENDC if i == 0 else ''}{' ' * remaining_padding}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Empty line
-            popup_lines.append(f"\033[{popup_y + popup_height - 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Bottom border
-            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+            # Create popup with dynamic sizing
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "KEYBOARD SHORTCUTS",
+                help_lines,
+                center_title=True,
+                left_padding=0
+            )
 
             # Display popup
             for line in popup_lines:
@@ -1695,50 +1727,50 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             while True:
                 popup_lines = []
 
-                # Top border
-                popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+                # Top border (green like table borders)
+                popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
 
                 # Title
                 title = f"AP: {ap.ssid or ap_bssid[:17]}"
                 title_padding = (popup_width - 2 - len(title)) // 2
                 remaining = popup_width - 2 - len(title) - title_padding
-                popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
                 # Separator
-                popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
 
                 # Empty line
-                popup_lines.append(f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (popup_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
-                # Menu items
+                # Menu items (with space on left and right)
                 for i, item in enumerate(menu_items):
                     row = popup_y + 4 + i
                     is_selected = (i == selected_menu_index)
 
                     if is_selected:
                         # Highlight selected item
-                        item_text = f"  ▶ {item}"
+                        item_text = f" ▶ {item}"
                         bg = "\033[48;5;240m"
                         bg_reset = "\033[49m"
                     else:
-                        item_text = f"    {item}"
+                        item_text = f"   {item}"
                         bg = ""
                         bg_reset = ""
 
-                    item_padding = popup_width - 2 - len(item_text)
-                    popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{bg}{item_text}{' ' * item_padding}{bg_reset}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+                    item_padding = popup_width - 4 - len(item_text)  # -4 for borders + 2 spaces
+                    popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg}{item_text}{' ' * item_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
                 # Empty line
-                popup_lines.append(f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * (popup_width - 2)}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (popup_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
                 # Footer
                 footer = "↑/↓: navigate  Enter: select  ESC: close"
                 footer_padding = (popup_width - 2 - len(footer)) // 2
                 remaining = popup_width - 2 - len(footer) - footer_padding
-                popup_lines.append(f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
                 # Bottom border
-                popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+                popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
 
                 # Display popup
                 for line in popup_lines:
@@ -1792,11 +1824,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         popup_active.set()
 
         try:
-            import shutil
             import datetime
-            term_size = shutil.get_terminal_size(fallback=(120, 24))
-            term_width = term_size.columns
-            term_height = term_size.lines
 
             # Build statistics
             stats_lines = [
@@ -1822,34 +1850,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 "Press any key to close..."
             ]
 
-            popup_width = 60
-            popup_height = len(stats_lines) + 4
-
-            popup_x = (term_width - popup_width) // 2
-            popup_y = (term_height - popup_height) // 2
-
-            popup_lines = []
-
-            # Top border
-            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
-
-            # Title
-            title = "AP STATISTICS"
-            title_padding = (popup_width - 2 - len(title)) // 2
-            remaining = popup_width - 2 - len(title) - title_padding
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Separator
-            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
-
-            # Content lines
-            for i, line in enumerate(stats_lines):
-                row = popup_y + 3 + i
-                line_padding = popup_width - 2 - len(line)
-                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC} {line}{' ' * line_padding} {Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Bottom border
-            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+            # Create popup with dynamic sizing
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "AP STATISTICS",
+                stats_lines,
+                center_title=True,
+                left_padding=0
+            )
 
             # Display popup
             for line in popup_lines:
@@ -1869,11 +1876,6 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         popup_active.set()
 
         try:
-            import shutil
-            term_size = shutil.get_terminal_size(fallback=(120, 24))
-            term_width = term_size.columns
-            term_height = term_size.lines
-
             # Build security features checklist
             security_features = []
             if ap.rsn_present:
@@ -1949,35 +1951,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             info_lines.append("")
             info_lines.append("Press any key to close...")
 
-            popup_width = 70
-            popup_height = min(term_height - 4, len(info_lines) + 4)
-
-            popup_x = (term_width - popup_width) // 2
-            popup_y = (term_height - popup_height) // 2
-
-            popup_lines = []
-
-            # Top border
-            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
-
-            # Title
-            title = "AP INFORMATION"
-            title_padding = (popup_width - 2 - len(title)) // 2
-            remaining = popup_width - 2 - len(title) - title_padding
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Separator
-            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
-
-            # Content lines (with scrolling if needed)
-            display_lines = info_lines[:popup_height - 4]
-            for i, line in enumerate(display_lines):
-                row = popup_y + 3 + i
-                line_padding = max(0, popup_width - 2 - len(line))
-                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC} {line[:popup_width-4]}{' ' * line_padding} {Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Bottom border
-            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+            # Create popup with dynamic sizing
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "AP INFORMATION",
+                info_lines,
+                center_title=True,
+                left_padding=0
+            )
 
             # Display popup
             for line in popup_lines:
@@ -1997,17 +1977,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         popup_active.set()
 
         try:
-            import shutil
-            term_size = shutil.get_terminal_size(fallback=(120, 24))
-            term_width = term_size.columns
-            term_height = term_size.lines
-
             # Get RSSI history
             history = ap.rssi_history[-50:] if ap.rssi_history else []
 
             # Build visualization
             vis_lines = [
-                f"Signal Strength History - {ap.ssid or ap.bssid[:17]}",
+                f"AP: {ap.ssid or ap.bssid[:17]}",
                 f"Current: {ap.rssi}dBm  |  Min: {ap.min_rssi}dBm  |  Max: {ap.max_rssi}dBm" if ap.rssi else "No data available",
                 "",
             ]
@@ -2056,35 +2031,13 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             vis_lines.append("")
             vis_lines.append("Press any key to close...")
 
-            popup_width = 80
-            popup_height = min(term_height - 4, len(vis_lines) + 4)
-
-            popup_x = (term_width - popup_width) // 2
-            popup_y = (term_height - popup_height) // 2
-
-            popup_lines = []
-
-            # Top border
-            popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
-
-            # Title
-            title = "SIGNAL STRENGTH HISTORY"
-            title_padding = (popup_width - 2 - len(title)) // 2
-            remaining = popup_width - 2 - len(title) - title_padding
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Separator
-            popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
-
-            # Content lines
-            display_lines = vis_lines[:popup_height - 4]
-            for i, line in enumerate(display_lines):
-                row = popup_y + 3 + i
-                line_padding = max(0, popup_width - 2 - len(line))
-                popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}{line[:popup_width-2]}{' ' * line_padding}{Colors.BOLD}{Colors.OKCYAN}║{Colors.ENDC}")
-
-            # Bottom border
-            popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKCYAN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+            # Create popup with dynamic sizing
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "SIGNAL STRENGTH HISTORY",
+                vis_lines,
+                center_title=True,
+                left_padding=0
+            )
 
             # Display popup
             for line in popup_lines:
