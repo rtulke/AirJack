@@ -360,6 +360,7 @@ class APInfo:
     first_seen: Optional[float] = None  # Timestamp when first discovered
     last_seen: Optional[float] = None  # Timestamp when last seen
     currently_visible: bool = True  # Whether AP is visible in current scan
+    rssi_history: List[Tuple[float, int]] = field(default_factory=list)  # [(timestamp, rssi), ...]
 
     def security_label(self) -> str:
         """Return simplified, user-friendly security label."""
@@ -724,7 +725,7 @@ def get_report_line_count(aps: Dict[str, APInfo]) -> int:
     return base_lines
 
 
-def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None):
+def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None, selected_index: int = -1):
     if not aps:
         print("No APs discovered.")
         return
@@ -806,7 +807,14 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     # Separator line
     print(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (terminal_width - 2)}╣{Colors.ENDC}")
 
-    for bssid, ap in sorted_aps:
+    for idx, (bssid, ap) in enumerate(sorted_aps):
+        # Check if this line is selected
+        is_selected = (idx == selected_index and selected_index >= 0)
+
+        # Background highlight for selected line
+        bg_highlight = "\033[48;5;240m" if is_selected else ""  # Medium gray background (color 240)
+        bg_reset = "\033[49m" if is_selected else ""  # Reset background
+
         # Check if AP is currently visible - if not, gray out the entire line
         is_visible = getattr(ap, 'currently_visible', True)  # Default to True for backward compatibility
         gray_prefix = Colors.GRAY if not is_visible else ""
@@ -965,14 +973,23 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         else:
             line_content = f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}"
 
+        # If selected, replace all ENDC codes to maintain background highlight
+        if is_selected:
+            # Replace Colors.ENDC with ENDC + bg_highlight to maintain background
+            line_content = line_content.replace(Colors.ENDC, f"{Colors.ENDC}{bg_highlight}")
+
         # Calculate visual length (without ANSI codes) for proper padding
         import re
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         line_visual_length = len(ansi_escape.sub('', line_content))
         line_padding = max(0, content_width - line_visual_length)
 
-        # Print with borders
-        print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {line_content}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+        # Print with borders and optional background highlight
+        # Background goes over content + padding for full line highlight
+        if is_selected:
+            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg_highlight}{line_content}{' ' * line_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+        else:
+            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {line_content}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
 
 
@@ -1394,6 +1411,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     last_scan_time = datetime.datetime.now()    # When last scan completed
     last_scan_duration = 0.0  # Duration of last scan in seconds
     popup_active = threading.Event()  # Flag to prevent display updates while popup is shown
+    selected_index = 0  # Currently selected AP index (0-based)
+    navigation_enabled = False  # Toggle navigation mode
 
     # Statistics tracking
     start_time = datetime.datetime.now()
@@ -1497,7 +1516,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 table_buffer = io.StringIO()
                 old_stdout_temp = sys_module.stdout
                 sys_module.stdout = table_buffer
-                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width)
+                # Pass selected_index if navigation is enabled
+                current_selection = selected_index if navigation_enabled else -1
+                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width, selected_index=current_selection)
                 sys_module.stdout = old_stdout_temp
                 content_lines.extend(table_buffer.getvalue().rstrip('\n').split('\n'))
 
@@ -1515,7 +1536,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
 
             # Footer - right aligned in gray
-            footer = "h: help  |  q/esc/ctrl+c: exit  |  r/ctrl+l: refresh"
+            footer = "↑/↓: navigate  |  h: help  |  q: exit  |  r: refresh"
             footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
@@ -1891,19 +1912,49 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 # Check for keyboard input with timeout
                 readable, _, _ = select.select([sys_main.stdin], [], [], 0.1)
                 if readable:
-                    char = sys_main.stdin.read(1)
-                    # Check for 'h' for help
-                    if char.lower() == 'h':
+                    # Read available input (may be multiple chars for escape sequences)
+                    import fcntl
+                    import os as os_module
+
+                    # Set non-blocking temporarily to read all available
+                    fd = sys_main.stdin.fileno()
+                    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os_module.O_NONBLOCK)
+
+                    try:
+                        input_chars = sys_main.stdin.read()
+                    except:
+                        input_chars = ''
+                    finally:
+                        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+                    if not input_chars:
+                        continue
+
+                    # Check for escape sequences (arrow keys)
+                    if input_chars == '\x1b[A':  # Up arrow
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = max(0, selected_index - 1)
+                            update_display()
+                    elif input_chars == '\x1b[B':  # Down arrow
+                        navigation_enabled = True
+                        with ap_pool_lock:
+                            ap_count = len(ap_pool)
+                        if ap_count > 0:
+                            selected_index = min(ap_count - 1, selected_index + 1)
+                            update_display()
+                    elif input_chars == '\x1b' or input_chars.lower() == 'q':
+                        # ESC or q - quit
+                        break
+                    elif input_chars.lower() == 'h':
                         # Show help popup
                         show_help_popup()
-                    # Check for 'r' or Ctrl+L (ASCII 12) for refresh
-                    elif char.lower() == 'r' or ord(char) == 12:
+                    elif input_chars.lower() == 'r' or input_chars == '\x0c':  # r or Ctrl+L
                         # Trigger immediate display update
                         update_display()
-                    # Check for 'q' or ESC (ASCII 27) for quit
-                    elif char.lower() == 'q' or ord(char) == 27:
-                        # Exit gracefully
-                        break
             else:
                 # If not a tty, just wait
                 time.sleep(0.1)
