@@ -1669,15 +1669,15 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 # Truncate line_text to fit
                 line_text = line_text[:inner_width - 1]
 
-            # Build the complete line without any trailing ENDC after the border
+            # Build the complete line: content + padding + right space
+            # Important: Only ONE Colors.ENDC to reset any colors in line_text
             line_content = f"{line_text}{Colors.ENDC}{' ' * padding_needed} "
 
             popup_lines.append(
                 f"\033[{row};{popup_x}H"  # Position cursor
-                f"{Colors.BOLD}{Colors.OKGREEN}║"  # Left border
-                f"{Colors.ENDC}{line_content}"  # Content with padding
-                f"{Colors.BOLD}{Colors.OKGREEN}║"  # Right border
-                f"{Colors.ENDC}\033[K"  # Reset and erase to end of line
+                f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Left border with reset
+                f"{line_content}"  # Content already has ENDC inside
+                f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Right border with reset
             )
 
         # Bottom border
