@@ -355,6 +355,8 @@ class APInfo:
     beacon_interval: Optional[int] = None
     deauth_count: int = 0
     disassoc_count: int = 0
+    mode: Optional[str] = None  # Infrastructure, Ad-hoc, etc.
+    rate: Optional[float] = None  # Max rate in Mbit/s
     # Tracking fields
     ap_id: Optional[int] = None  # Unique ID assigned at discovery
     first_seen: Optional[float] = None  # Timestamp when first discovered
@@ -1042,6 +1044,20 @@ def scan_with_corewlan(timeout: int) -> Dict[str, APInfo]:
             # Get vendor from BSSID
             vendor = get_vendor(bssid)
 
+            # Get mode (Infrastructure vs Ad-hoc)
+            mode = "Ad-hoc" if (hasattr(network, 'ibss') and network.ibss()) else "Infra"
+
+            # Get max rate (in Mbit/s)
+            rate = None
+            if hasattr(network, 'supportedPHYModes'):
+                # Try to get supported data rates
+                try:
+                    # CoreWLAN doesn't directly expose rates, but we can infer from PHY mode
+                    # This is a simplified approach
+                    pass
+                except:
+                    pass
+
             # Create AP info
             ap = APInfo(
                 bssid=bssid,
@@ -1050,7 +1066,9 @@ def scan_with_corewlan(timeout: int) -> Dict[str, APInfo]:
                 rssi=rssi,
                 vendor=vendor,
                 hidden=(ssid == ""),
-                band=get_band(channel) if channel else None
+                band=get_band(channel) if channel else None,
+                mode=mode,
+                rate=rate
             )
 
             # Parse security settings from CoreWLAN
@@ -1587,14 +1605,23 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             Tuple of (popup_lines, popup_width, popup_height, popup_x, popup_y)
         """
         import shutil
+        import re
         term_size = shutil.get_terminal_size(fallback=(120, 24))
         term_width = term_size.columns
         term_height = term_size.lines
 
+        # Helper function to get visual length (strips ANSI codes)
+        def visual_len(text):
+            # Remove ANSI escape sequences
+            ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+            clean_text = ansi_escape.sub('', text)
+            return len(clean_text)
+
         # Calculate dynamic width based on content
-        max_line_len = max(len(line) for line in content_lines) if content_lines else 20
-        title_len = len(title)
-        popup_width = max(max_line_len + left_padding + 2, title_len + 4, 40)  # +2 for borders, min 40
+        max_line_len = max(visual_len(line) for line in content_lines) if content_lines else 20
+        title_len = visual_len(title)
+        # +4 for borders (2) + left space (1) + right space (1) + left_padding
+        popup_width = max(max_line_len + left_padding + 4, title_len + 4, 40)  # min 40
         popup_width = min(popup_width, term_width - 4)  # Don't exceed terminal width
 
         # Calculate height
@@ -1611,12 +1638,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
         # Title line
         if center_title:
-            title_padding = (popup_width - 2 - len(title)) // 2
-            remaining = popup_width - 2 - len(title) - title_padding
+            title_padding = (popup_width - 2 - visual_len(title)) // 2
+            remaining = popup_width - 2 - visual_len(title) - title_padding
             popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
         else:
             title_text = f" {title} "
-            remaining = popup_width - 2 - len(title_text)
+            remaining = popup_width - 2 - visual_len(title_text)
             popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{Colors.BOLD}{title_text}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
         # Separator
@@ -1627,7 +1654,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             row = popup_y + 3 + i
             # Add 1 space on left + padding + content, then 1 space on right
             line_text = ' ' + (' ' * left_padding) + line
-            remaining_space = popup_width - 2 - len(line_text) - 1  # -1 for right space
+            remaining_space = popup_width - 2 - visual_len(line_text) - 1  # -1 for right space
             popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
         # Bottom border
@@ -1930,6 +1957,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 f"  SSID: {ap.ssid or '(hidden)'}",
                 f"  Channel: {ap.channel}" if ap.channel else "  Channel: N/A",
                 f"  Band: {ap.band}" if ap.band else "  Band: N/A",
+                f"  Mode: {ap.mode}" if ap.mode else "  Mode: N/A",
+                f"  Rate: {ap.rate} Mbit/s" if ap.rate else "  Rate: N/A",
                 f"  Vendor: {ap.vendor}" if ap.vendor else "  Vendor: Unknown",
                 "",
                 f"Security Type: {ap.security_label()}",
@@ -2110,6 +2139,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             rssi = network.rssiValue()
                             vendor = get_vendor(bssid)
 
+                            # Get mode
+                            mode = "Ad-hoc" if (hasattr(network, 'ibss') and network.ibss()) else "Infra"
+
                             ap = APInfo(
                                 bssid=bssid,
                                 ssid=ssid,
@@ -2117,7 +2149,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                 rssi=rssi,
                                 vendor=vendor,
                                 hidden=(ssid == ""),
-                                band=get_band(channel) if channel else None
+                                band=get_band(channel) if channel else None,
+                                mode=mode
                             )
 
                             # Parse security
