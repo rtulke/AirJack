@@ -1652,11 +1652,31 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         # Content lines (left-aligned with extra space on both sides)
         for i, line in enumerate(content_lines):
             row = popup_y + 3 + i
-            # Add 1 space on left + padding + content, then 1 space on right
+            # Build content with left space and padding
             line_text = ' ' + (' ' * left_padding) + line
-            remaining_space = max(0, popup_width - 2 - visual_len(line_text) - 1)  # -1 for right space, ensure non-negative
-            # Add ANSI reset before padding to ensure colors don't bleed
-            popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}\033[0m{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            content_len = visual_len(line_text)
+
+            # Total space inside borders: popup_width - 2 (for the two ║ characters)
+            # We need: content + padding + 1 space on right = popup_width - 2
+            inner_width = popup_width - 2
+            padding_needed = inner_width - content_len - 1  # -1 for right space
+
+            if padding_needed < 0:
+                # Content is too long, truncate it
+                padding_needed = 0
+                # Truncate line_text to fit
+                line_text = line_text[:inner_width - 1]
+
+            # Build the complete line without any trailing ENDC after the border
+            line_content = f"{line_text}{Colors.ENDC}{' ' * padding_needed} "
+
+            popup_lines.append(
+                f"\033[{row};{popup_x}H"
+                f"{Colors.BOLD}{Colors.OKGREEN}║"
+                f"{Colors.ENDC}{line_content}"
+                f"{Colors.BOLD}{Colors.OKGREEN}║"
+                f"{Colors.ENDC}"
+            )
 
         # Bottom border
         popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
