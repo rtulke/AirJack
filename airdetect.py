@@ -1655,7 +1655,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             # Add 1 space on left + padding + content, then 1 space on right
             line_text = ' ' + (' ' * left_padding) + line
             remaining_space = max(0, popup_width - 2 - visual_len(line_text) - 1)  # -1 for right space, ensure non-negative
-            popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            # Add ANSI reset before padding to ensure colors don't bleed
+            popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}\033[0m{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
         # Bottom border
         popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
