@@ -1670,13 +1670,23 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 line_text = line_text[:inner_width - 1]
 
             # Build the complete line: content + padding + right space
-            # Important: Only ONE Colors.ENDC to reset any colors in line_text
+            # Strip any trailing ANSI codes from line_text before adding padding
+            # to prevent them from affecting the padding area
             line_content = f"{line_text}{Colors.ENDC}{' ' * padding_needed} "
 
+            # Debug: Check if line has embedded ENDC that might cause issues
+            # Count actual visual characters vs total to detect issues
+            actual_visual = visual_len(line_content)
+            expected_visual = content_len + padding_needed + 1  # content + padding + right space
+
+            # Calculate where the right border should be
+            right_border_x = popup_x + popup_width - 1
+
             popup_lines.append(
-                f"\033[{row};{popup_x}H"  # Position cursor
+                f"\033[{row};{popup_x}H"  # Position cursor at left edge
                 f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Left border with reset
-                f"{line_content}"  # Content already has ENDC inside
+                f"{line_content}"  # Content with padding
+                f"\033[{row};{right_border_x}H"  # Position cursor at right border
                 f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Right border with reset
             )
 
