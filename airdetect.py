@@ -1787,20 +1787,39 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             while True:
                 popup_lines = []
 
+                # Main app right border position
+                main_right_border = term_width
+
                 # Top border (green like table borders)
-                popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}\033[K"
+                    f"\033[{popup_y};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Title
                 title = f"AP: {ap.ssid or ap_bssid[:17]}"
                 title_padding = (popup_width - 2 - len(title)) // 2
                 remaining = popup_width - 2 - len(title) - title_padding
-                popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Separator
-                popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 2};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Empty line
-                popup_lines.append(f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (popup_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{' ' * (popup_width - 2)}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 3};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Menu items (with space on left and right)
                 for i, item in enumerate(menu_items):
@@ -1818,19 +1837,37 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                         bg_reset = ""
 
                     item_padding = popup_width - 4 - len(item_text)  # -4 for borders + 2 spaces
-                    popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg}{item_text}{' ' * item_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                    popup_lines.append(
+                        f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                        f" {bg}{item_text}{' ' * item_padding}{bg_reset} "
+                        f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
+                        f"\033[{row};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    )
 
                 # Empty line
-                popup_lines.append(f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (popup_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{' ' * (popup_width - 2)}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 4 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Footer
                 footer = "↑/↓: navigate  Enter: select  ESC: close"
                 footer_padding = (popup_width - 2 - len(footer)) // 2
                 remaining = popup_width - 2 - len(footer) - footer_padding
-                popup_lines.append(f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 5 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Bottom border
-                popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+                popup_lines.append(
+                    f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + popup_height - 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                )
 
                 # Display popup
                 for line in popup_lines:
@@ -2368,7 +2405,11 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
             except Exception as e:
                 if scan_active.is_set():  # Only print if not shutting down
-                    print(f"\n[!] Background scanner error: {e}")
+                    try:
+                        if not popup_active.is_set():  # Only print if no popup is active
+                            print(f"\n[!] Background scanner error: {e}")
+                    except:
+                        pass  # Silently ignore print errors during popup display
                 break
 
     # Start background scanner (now also handles display)
