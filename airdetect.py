@@ -1612,8 +1612,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
         # Helper function to get visual length (strips ANSI codes)
         def visual_len(text):
-            # Remove ANSI escape sequences
-            ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+            # Remove all ANSI escape sequences (including CSI sequences)
+            ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07')
             clean_text = ansi_escape.sub('', text)
             return len(clean_text)
 
@@ -1654,7 +1654,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             row = popup_y + 3 + i
             # Add 1 space on left + padding + content, then 1 space on right
             line_text = ' ' + (' ' * left_padding) + line
-            remaining_space = popup_width - 2 - visual_len(line_text) - 1  # -1 for right space
+            remaining_space = max(0, popup_width - 2 - visual_len(line_text) - 1)  # -1 for right space, ensure non-negative
             popup_lines.append(f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{line_text}{' ' * remaining_space} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
         # Bottom border
@@ -1955,16 +1955,21 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 "Basic Information:",
                 f"  BSSID: {ap.bssid}",
                 f"  SSID: {ap.ssid or '(hidden)'}",
-                f"  Channel: {ap.channel}" if ap.channel else "  Channel: N/A",
-                f"  Band: {ap.band}" if ap.band else "  Band: N/A",
-                f"  Mode: {ap.mode}" if ap.mode else "  Mode: N/A",
-                f"  Rate: {ap.rate} Mbit/s" if ap.rate else "  Rate: N/A",
-                f"  Vendor: {ap.vendor}" if ap.vendor else "  Vendor: Unknown",
+            ]
+
+            # Add conditional fields properly
+            info_lines.append(f"  Channel: {ap.channel}" if ap.channel else "  Channel: N/A")
+            info_lines.append(f"  Band: {ap.band}" if ap.band else "  Band: N/A")
+            info_lines.append(f"  Mode: {ap.mode}" if ap.mode else "  Mode: N/A")
+            info_lines.append(f"  Rate: {ap.rate} Mbit/s" if ap.rate else "  Rate: N/A")
+            info_lines.append(f"  Vendor: {ap.vendor}" if ap.vendor else "  Vendor: Unknown")
+
+            info_lines.extend([
                 "",
                 f"Security Type: {ap.security_label()}",
                 "",
                 "Security Features:",
-            ]
+            ])
             info_lines.extend([f"  {f}" for f in security_features])
             info_lines.append("")
             info_lines.append("Other Features:")
