@@ -1620,7 +1620,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         # Calculate dynamic width based on content
         max_line_len = max(visual_len(line) for line in content_lines) if content_lines else 20
         title_len = visual_len(title)
-        # +4 for borders (2) + left space (1) + right space (1) + left_padding
+        # Width calculation: content + left_padding + left_space (1) + right_space (1) + borders (2)
+        # = content + left_padding + 4
+        # But we also add left_space and left_padding in line_text, so just add content + 4 here
         popup_width = max(max_line_len + left_padding + 4, title_len + 4, 40)  # min 40
         popup_width = min(popup_width, term_width - 4)  # Don't exceed terminal width
 
@@ -1671,11 +1673,11 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             line_content = f"{line_text}{Colors.ENDC}{' ' * padding_needed} "
 
             popup_lines.append(
-                f"\033[{row};{popup_x}H"
-                f"{Colors.BOLD}{Colors.OKGREEN}║"
-                f"{Colors.ENDC}{line_content}"
-                f"{Colors.BOLD}{Colors.OKGREEN}║"
-                f"{Colors.ENDC}"
+                f"\033[{row};{popup_x}H"  # Position cursor
+                f"{Colors.BOLD}{Colors.OKGREEN}║"  # Left border
+                f"{Colors.ENDC}{line_content}"  # Content with padding
+                f"{Colors.BOLD}{Colors.OKGREEN}║"  # Right border
+                f"{Colors.ENDC}\033[K"  # Reset and erase to end of line
             )
 
         # Bottom border
