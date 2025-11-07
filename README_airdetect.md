@@ -27,6 +27,14 @@ This tool is provided for **EDUCATIONAL AND SECURITY RESEARCH PURPOSES ONLY**. O
   - Channel width detection (20/40/80/160 MHz)
   - Deauth attack detection
   - 4-Way Handshake observation (EAPOL)
+  - **RSSI tracking** with min/max/current values and signal strength history
+  - **Data rate estimation** (macOS: theoretical max + RSSI-based estimate, Linux: actual from RadioTap)
+- **Interactive Mode** (Permanent Scan):
+  - Real-time continuous scanning with auto-refresh
+  - Interactive AP selection with Enter key
+  - Detailed per-AP popups: Statistics, Information, Signal Strength History
+  - Visual signal strength graph with time-based tracking
+  - Keyboard navigation (↑/↓ arrows, Enter, ESC, h for help)
 - **Vendor Identification** - Comprehensive OUI database (2010-2025) with 1,366+ vendors
 - **Colorized Output** - RSSI-based signal strength colors, security type highlighting
 - **PCAP Analysis** - Read and analyze existing capture files

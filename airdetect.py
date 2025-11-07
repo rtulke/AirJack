@@ -1047,16 +1047,31 @@ def scan_with_corewlan(timeout: int) -> Dict[str, APInfo]:
             # Get mode (Infrastructure vs Ad-hoc)
             mode = "Ad-hoc" if (hasattr(network, 'ibss') and network.ibss()) else "Infra"
 
-            # Get max rate (in Mbit/s)
+            # Get max rate (in Mbit/s) - estimated from PHY mode (macOS only)
+            # Note: On Linux with monitor mode, rate is extracted from RadioTap headers
             rate = None
-            if hasattr(network, 'supportedPHYModes'):
-                # Try to get supported data rates
+
+            # Try to get the fastest supported PHY mode
+            if hasattr(network, 'fastestSupportedPHYMode'):
                 try:
-                    # CoreWLAN doesn't directly expose rates, but we can infer from PHY mode
-                    # This is a simplified approach
-                    pass
-                except:
-                    pass
+                    phy_mode = network.fastestSupportedPHYMode()
+
+                    # Estimate max rate based on PHY mode
+                    # These are approximate maximum theoretical rates
+                    if phy_mode == CoreWLAN.kCWPHYMode11ax:  # WiFi 6/6E
+                        rate = 9608.0  # 9.6 Gbit/s theoretical max
+                    elif phy_mode == CoreWLAN.kCWPHYMode11ac:  # WiFi 5
+                        rate = 6933.0  # ~7 Gbit/s theoretical max
+                    elif phy_mode == CoreWLAN.kCWPHYMode11n:  # WiFi 4
+                        rate = 600.0  # 600 Mbit/s with 4 spatial streams
+                    elif phy_mode == CoreWLAN.kCWPHYMode11a:  # 5 GHz legacy
+                        rate = 54.0
+                    elif phy_mode == CoreWLAN.kCWPHYMode11g:  # 2.4 GHz
+                        rate = 54.0
+                    elif phy_mode == CoreWLAN.kCWPHYMode11b:  # 2.4 GHz legacy
+                        rate = 11.0
+                except Exception as e:
+                    pass  # If PHY mode detection fails, rate stays None
 
             # Create AP info
             ap = APInfo(
@@ -2031,7 +2046,32 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             info_lines.append(f"  Channel: {ap.channel}" if ap.channel else "  Channel: N/A")
             info_lines.append(f"  Band: {ap.band}" if ap.band else "  Band: N/A")
             info_lines.append(f"  Mode: {ap.mode}" if ap.mode else "  Mode: N/A")
-            info_lines.append(f"  Rate: {ap.rate} Mbit/s" if ap.rate else "  Rate: N/A")
+
+            # Rate with RSSI-based estimation (macOS only)
+            if ap.rate:
+                # Calculate estimated actual rate based on RSSI
+                if ap.rssi:
+                    # RSSI-based throughput estimation
+                    if ap.rssi >= -50:
+                        rate_factor = 1.0  # Excellent: 100%
+                    elif ap.rssi >= -60:
+                        rate_factor = 0.75  # Very good: 75%
+                    elif ap.rssi >= -67:
+                        rate_factor = 0.50  # Good: 50%
+                    elif ap.rssi >= -70:
+                        rate_factor = 0.35  # Fair: 35%
+                    elif ap.rssi >= -80:
+                        rate_factor = 0.20  # Poor: 20%
+                    else:
+                        rate_factor = 0.10  # Very poor: 10%
+
+                    estimated_rate = ap.rate * rate_factor
+                    info_lines.append(f"  Rate: {ap.rate} Mbit/s (max), ~{estimated_rate:.0f} Mbit/s (est.)")
+                else:
+                    info_lines.append(f"  Rate: {ap.rate} Mbit/s (max)")
+            else:
+                info_lines.append("  Rate: N/A")
+
             info_lines.append(f"  Vendor: {ap.vendor}" if ap.vendor else "  Vendor: Unknown")
 
             info_lines.extend([
@@ -2217,6 +2257,27 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             # Get mode
                             mode = "Ad-hoc" if (hasattr(network, 'ibss') and network.ibss()) else "Infra"
 
+                            # Get max rate (in Mbit/s) - estimated from PHY mode (macOS only)
+                            rate = None
+                            if hasattr(network, 'fastestSupportedPHYMode'):
+                                try:
+                                    phy_mode = network.fastestSupportedPHYMode()
+                                    # Estimate max rate based on PHY mode
+                                    if phy_mode == CoreWLAN.kCWPHYMode11ax:  # WiFi 6/6E
+                                        rate = 9608.0
+                                    elif phy_mode == CoreWLAN.kCWPHYMode11ac:  # WiFi 5
+                                        rate = 6933.0
+                                    elif phy_mode == CoreWLAN.kCWPHYMode11n:  # WiFi 4
+                                        rate = 600.0
+                                    elif phy_mode == CoreWLAN.kCWPHYMode11a:  # 5 GHz legacy
+                                        rate = 54.0
+                                    elif phy_mode == CoreWLAN.kCWPHYMode11g:  # 2.4 GHz
+                                        rate = 54.0
+                                    elif phy_mode == CoreWLAN.kCWPHYMode11b:  # 2.4 GHz legacy
+                                        rate = 11.0
+                                except:
+                                    pass
+
                             ap = APInfo(
                                 bssid=bssid,
                                 ssid=ssid,
@@ -2225,7 +2286,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                 vendor=vendor,
                                 hidden=(ssid == ""),
                                 band=get_band(channel) if channel else None,
-                                mode=mode
+                                mode=mode,
+                                rate=rate
                             )
 
                             # Parse security
