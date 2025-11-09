@@ -83,9 +83,10 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-    # Signal strength colors
-    STRONG_SIGNAL = '\033[92m'  # Green (>-60dBm)
-    MEDIUM_SIGNAL = '\033[93m'  # Yellow (>-80dBm)
+    # Signal strength colors (for row-based coloring)
+    STRONG_SIGNAL = '\033[92m'  # Green (≥-60dBm)
+    MEDIUM_SIGNAL = '\033[93m'  # Yellow (-60 to -70dBm)
+    POOR_SIGNAL = '\033[95m'    # Purple/Magenta (-70 to -80dBm)
     WEAK_SIGNAL = '\033[91m'    # Red (<-80dBm)
 
     # Security colors
@@ -198,31 +199,44 @@ AKM_TYPES = {
 # NEW: Helper functions
 # ------------------------------
 
-def colorize_rssi(rssi: Optional[int], min_rssi: Optional[int] = None, max_rssi: Optional[int] = None) -> str:
-    """Colorize RSSI value with optional min/max range display.
+def get_row_color_by_rssi(rssi: Optional[int], is_visible: bool = True) -> str:
+    """Get row color code based on RSSI strength for entire row coloring.
 
-    Format: -45dBm (↕-65) where -45 is current, -65 is weakest seen
+    Returns ANSI color code for the entire row:
+    - Gray: AP not visible in last scan
+    - Green: Strong signal (≥ -60 dBm)
+    - Yellow: Good signal (-60 to -70 dBm)
+    - Purple: Weak signal (-70 to -80 dBm)
+    - Red: Very weak signal (< -80 dBm)
+    """
+    if not is_visible:
+        return Colors.GRAY
+
+    if rssi is None:
+        return Colors.GRAY
+
+    if rssi >= -60:
+        return Colors.STRONG_SIGNAL  # Green
+    elif rssi >= -70:
+        return Colors.MEDIUM_SIGNAL  # Yellow
+    elif rssi >= -80:
+        return Colors.POOR_SIGNAL  # Purple/Magenta
+    else:
+        return Colors.WEAK_SIGNAL  # Red
+
+
+def colorize_rssi(rssi: Optional[int], min_rssi: Optional[int] = None, max_rssi: Optional[int] = None) -> str:
+    """Colorize RSSI value - now simplified for row-based coloring.
+
+    Format: -45dBm (without range, as it will go in separate column)
     """
     if rssi is None:
         return "-"
 
-    # Build base RSSI string
+    # Build base RSSI string (no range here - goes in separate Avg column)
     rssi_str = f"{rssi}dBm"
 
-    # Add range indicator if min/max available and different from current
-    if min_rssi is not None and min_rssi != rssi:
-        rssi_str += f" (↕{min_rssi})"
-
-    # Colorize based on current signal strength
-    if rssi > -60:
-        # Green for strong signal
-        return f"{Colors.STRONG_SIGNAL}{rssi_str}{Colors.ENDC}"
-    elif rssi > -80:
-        # Yellow for moderate signal
-        return f"{Colors.MEDIUM_SIGNAL}{rssi_str}{Colors.ENDC}"
-    else:
-        # Red for weak signal
-        return f"{Colors.WEAK_SIGNAL}{rssi_str}{Colors.ENDC}"
+    return rssi_str
 
 
 def colorize_security(sec_type: str) -> str:
@@ -737,11 +751,18 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         print("No APs discovered.")
         return
 
-    # Sort by AP ID (if available), otherwise by RSSI
-    if show_ids:
-        sorted_aps = sorted(aps.items(), key=lambda kv: (kv[1].ap_id or 9999, -(kv[1].rssi or -100)))
-    else:
-        sorted_aps = sorted(aps.items(), key=lambda kv: (-(kv[1].rssi or -100), kv[1].ssid, kv[0]))
+    # Sort by visibility first (visible APs first), then by RSSI (strongest signal first)
+    # Gray/invisible APs go to the bottom of the list
+    # Keep internal ID tracking for navigation, but always sort by visibility + RSSI strength
+    sorted_aps = sorted(
+        aps.items(),
+        key=lambda kv: (
+            not getattr(kv[1], 'currently_visible', True),  # False (visible) sorts before True (invisible)
+            -(kv[1].rssi or -100),  # Then by RSSI strength (strongest first)
+            kv[1].ssid,  # Then by SSID
+            kv[0]  # Finally by BSSID
+        )
+    )
 
     # Show timestamp if in permanent mode
     if show_timestamp:
@@ -756,20 +777,20 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     else:
         terminal_width = term_width
 
-    # Fixed column widths
-    id_width = 4 if show_ids else 0
+    # Fixed column widths (ID column removed from display)
     bssid_width = 17
-    rssi_width = 16  # Expanded for "-45dBm (↕-65)"
+    rssi_width = 8   # Current RSSI: "-59dBm"
+    avg_width = 8    # Average RSSI: "-62dBm"
     ch_width = 3
     band_width = 8
+    rate_max_width = 10  # "9608 Mbit"
+    rate_real_width = 10  # "4804 Mbit" (macOS only)
     security_width = 18
-    separators = 7 * 2  # Number of "  " separators
-    if show_ids:
-        separators += 2  # Extra separator for ID column
+    separators = 9 * 2  # Number of "  " separators between columns
 
     # Calculate fixed space used
-    fixed_space = (id_width + bssid_width + rssi_width + ch_width +
-                   band_width + security_width + separators)
+    fixed_space = (bssid_width + rssi_width + avg_width + ch_width +
+                   band_width + rate_max_width + rate_real_width + security_width + separators)
 
     # Available space for SSID, Vendor, and Features
     available = max(40, terminal_width - fixed_space - 10)  # Min 40, reserve 10 for features
@@ -799,11 +820,14 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     # Use full terminal width minus borders (1 char ║ + 1 space on each side)
     content_width = terminal_width - 4  # Leave space for "║ " and " ║"
 
-    # Print column header
-    if show_ids:
-        header = f"{'id':<{id_width}}  {'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
+    # Check if CoreWLAN is available (macOS) to show Rate (real) column
+    show_rate_real = COREWLAN_AVAILABLE
+
+    # Print column header (ID column removed from display)
+    if show_rate_real:
+        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'avg':<{avg_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'rate(max)':<{rate_max_width}}  {'rate(real)':<{rate_real_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
     else:
-        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
+        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'avg':<{avg_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'rate(max)':<{rate_max_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
 
     # Truncate or pad header to fit content width
     if len(header) > content_width:
@@ -824,166 +848,126 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
 
         # Check if AP is currently visible - if not, gray out the entire line
         is_visible = getattr(ap, 'currently_visible', True)  # Default to True for backward compatibility
-        gray_prefix = Colors.GRAY if not is_visible else ""
-        gray_suffix = Colors.ENDC if not is_visible else ""
 
-        # ID display (if enabled)
-        if show_ids:
-            if is_visible:
-                id_str = f"{Colors.BOLD}{Colors.WARNING}{ap.ap_id:<3}{Colors.ENDC}" if ap.ap_id else f"{Colors.WARNING}?{Colors.ENDC}  "
+        # Get row color based on RSSI (for entire row)
+        row_color = get_row_color_by_rssi(ap.rssi, is_visible)
+
+        # BSSID - simple text, row color will be applied to entire line
+        bssid_str = bssid
+
+        # RSSI - just current value
+        rssi_str = colorize_rssi(ap.rssi) if ap.rssi else "-"
+
+        # AVG - average/min RSSI value
+        if ap.min_rssi is not None and ap.min_rssi != ap.rssi:
+            avg_str = f"{ap.min_rssi}dBm"
+        else:
+            avg_str = "-"
+
+        # Channel
+        ch_str = str(ap.channel) if ap.channel else "-"
+
+        # Band
+        band_str = ap.band or "-"
+
+        # Rate (max) - theoretical maximum from PHY mode
+        if ap.rate:
+            rate_max_str = f"{int(ap.rate)} Mbit"
+        else:
+            rate_max_str = "-"
+
+        # Rate (real) - RSSI-based estimate (only for macOS/CoreWLAN)
+        if show_rate_real and ap.rate and ap.rssi:
+            # Calculate estimated actual rate based on RSSI
+            if ap.rssi >= -50:
+                rate_factor = 1.0  # Excellent: 100%
+            elif ap.rssi >= -60:
+                rate_factor = 0.75  # Very good: 75%
+            elif ap.rssi >= -67:
+                rate_factor = 0.50  # Good: 50%
+            elif ap.rssi >= -70:
+                rate_factor = 0.35  # Fair: 35%
+            elif ap.rssi >= -80:
+                rate_factor = 0.20  # Poor: 20%
             else:
-                id_str = f"{Colors.GRAY}{ap.ap_id:<3}{Colors.ENDC}" if ap.ap_id else f"{Colors.GRAY}?{Colors.ENDC}  "
-            id_padding = 4 + len(id_str) - 3  # Account for ANSI codes
+                rate_factor = 0.10  # Very poor: 10%
 
-        # Colorize BSSID
-        if is_visible:
-            bssid_colored = colorize_bssid(bssid)
+            estimated_rate = ap.rate * rate_factor
+            rate_real_str = f"{int(estimated_rate)} Mbit"
         else:
-            bssid_colored = f"{Colors.GRAY}{bssid}{Colors.ENDC}"
+            rate_real_str = "-"
 
-        # Colorize RSSI with min/max range
-        if is_visible:
-            rssi_colored = colorize_rssi(ap.rssi, ap.min_rssi, ap.max_rssi)
+        # SSID with proper truncation (using dynamic width)
+        if ap.hidden:
+            ssid_str = "<hidden>"
+        elif len(ap.ssid) > ssid_width:
+            ssid_str = ap.ssid[:ssid_width-3] + "..."
         else:
-            # Gray out for invisible APs
-            rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
-            if ap.min_rssi is not None and ap.min_rssi != ap.rssi:
-                rssi_plain += f" (↕{ap.min_rssi})"
-            rssi_colored = f"{Colors.GRAY}{rssi_plain}{Colors.ENDC}"
+            ssid_str = ap.ssid
 
-        # Basic info - gray out if not visible
-        if is_visible:
-            ch_str = str(ap.channel) if ap.channel else "-"
-            band_str = ap.band or "-"
+        # Vendor with proper truncation (using dynamic width)
+        if ap.vendor and len(ap.vendor) > vendor_width:
+            vendor_str = ap.vendor[:vendor_width-3] + "..."
         else:
-            ch_str = f"{Colors.GRAY}{ap.channel if ap.channel else '-'}{Colors.ENDC}"
-            band_str = f"{Colors.GRAY}{ap.band or '-'}{Colors.ENDC}"
+            vendor_str = ap.vendor or "Unknown"
 
-        # SSID with proper truncation and colorization (using dynamic width)
-        if is_visible:
-            if ap.hidden:
-                ssid_display = colorize_ssid("", hidden=True)
-                ssid_padding = ssid_width
-            elif len(ap.ssid) > ssid_width:
-                ssid_truncated = ap.ssid[:ssid_width-3] + "..."
-                ssid_display = colorize_ssid(ssid_truncated)
-                ssid_padding = ssid_width
-            else:
-                ssid_display = colorize_ssid(ap.ssid)
-                ssid_padding = ssid_width + len(ssid_display) - len(ap.ssid)
-        else:
-            # Gray out SSID for invisible APs
-            if ap.hidden:
-                ssid_text = "<hidden>"
-            elif len(ap.ssid) > ssid_width:
-                ssid_text = ap.ssid[:ssid_width-3] + "..."
-            else:
-                ssid_text = ap.ssid
-            ssid_display = f"{Colors.GRAY}{ssid_text}{Colors.ENDC}"
-            ssid_padding = ssid_width + len(ssid_display) - len(ssid_text)
+        # Security label
+        sec_str = ap.security_label()
 
-        # Vendor with proper truncation and colorization (using dynamic width)
-        if is_visible:
-            if ap.vendor and len(ap.vendor) > vendor_width:
-                vendor_truncated = ap.vendor[:vendor_width-3] + "..."
-                vendor_display = colorize_vendor(vendor_truncated)
-                vendor_padding = vendor_width
-            else:
-                vendor_text = ap.vendor or "Unknown"
-                vendor_display = colorize_vendor(vendor_text)
-                vendor_padding = vendor_width + len(vendor_display) - len(vendor_text)
-        else:
-            # Gray out vendor for invisible APs
-            if ap.vendor and len(ap.vendor) > vendor_width:
-                vendor_text = ap.vendor[:vendor_width-3] + "..."
-            else:
-                vendor_text = ap.vendor or "Unknown"
-            vendor_display = f"{Colors.GRAY}{vendor_text}{Colors.ENDC}"
-            vendor_padding = vendor_width + len(vendor_display) - len(vendor_text)
-
-        # Security label - colorized (using dynamic width)
-        sec = ap.security_label()
-        if is_visible:
-            sec_colored = colorize_security(sec)
-        else:
-            sec_colored = f"{Colors.GRAY}{sec}{Colors.ENDC}"
-        sec_padding = security_width + len(sec_colored) - len(sec)
-
-        # Features column
+        # Features column - plain text, row color will be applied
         features = []
-        if is_visible:
-            if ap.wps_enabled:
-                wps_status = f"{Colors.FAIL}WPS!{Colors.ENDC}" if ap.wps_locked is False else f"{Colors.WARNING}WPS{Colors.ENDC}"
-                features.append(wps_status)
-            if ap.pmf_required:
-                features.append(f"{Colors.OKGREEN}PMF:req{Colors.ENDC}")
-            elif ap.pmf_capable:
-                features.append(f"{Colors.OKCYAN}PMF:cap{Colors.ENDC}")
-            if ap.ft_present:
-                features.append(f"{Colors.OKCYAN}FT{Colors.ENDC}")
-            if ap.rrm_enabled:
-                features.append(f"{Colors.OKCYAN}RRM{Colors.ENDC}")
-            if ap.bss_transition:
-                features.append(f"{Colors.OKCYAN}BSS-T{Colors.ENDC}")
-            if ap.channel_width:
-                features.append(f"{Colors.OKBLUE}{ap.channel_width}MHz{Colors.ENDC}")
-            if ap.handshake_observed:
-                features.append(f"{Colors.OKGREEN}4WH{Colors.ENDC}")
-            if ap.deauth_count > 10:
-                features.append(f"{Colors.FAIL}[!]DA:{ap.deauth_count}{Colors.ENDC}")
-        else:
-            # Gray out features for invisible APs
-            if ap.wps_enabled:
-                wps_status = "WPS!" if ap.wps_locked is False else "WPS"
-                features.append(f"{Colors.GRAY}{wps_status}{Colors.ENDC}")
-            if ap.pmf_required:
-                features.append(f"{Colors.GRAY}PMF:req{Colors.ENDC}")
-            elif ap.pmf_capable:
-                features.append(f"{Colors.GRAY}PMF:cap{Colors.ENDC}")
-            if ap.ft_present:
-                features.append(f"{Colors.GRAY}FT{Colors.ENDC}")
-            if ap.rrm_enabled:
-                features.append(f"{Colors.GRAY}RRM{Colors.ENDC}")
-            if ap.bss_transition:
-                features.append(f"{Colors.GRAY}BSS-T{Colors.ENDC}")
-            if ap.channel_width:
-                features.append(f"{Colors.GRAY}{ap.channel_width}MHz{Colors.ENDC}")
-            if ap.handshake_observed:
-                features.append(f"{Colors.GRAY}4WH{Colors.ENDC}")
-            if ap.deauth_count > 10:
-                features.append(f"{Colors.GRAY}⚠️DA:{ap.deauth_count}{Colors.ENDC}")
+        if ap.wps_enabled:
+            wps_status = "WPS!" if ap.wps_locked is False else "WPS"
+            features.append(wps_status)
+        if ap.pmf_required:
+            features.append("PMF:req")
+        elif ap.pmf_capable:
+            features.append("PMF:cap")
+        if ap.ft_present:
+            features.append("FT")
+        if ap.rrm_enabled:
+            features.append("RRM")
+        if ap.bss_transition:
+            features.append("BSS-T")
+        if ap.channel_width:
+            features.append(f"{ap.channel_width}MHz")
+        if ap.handshake_observed:
+            features.append("4WH")
+        if ap.deauth_count > 10:
+            features.append(f"⚠️DA:{ap.deauth_count}")
 
         features_str = " ".join(features) if features else "-"
 
-        # Calculate BSSID padding for ANSI codes
-        bssid_padding = bssid_width + len(bssid_colored) - len(bssid)
-
-        # Calculate RSSI padding - account for min/max range display
-        rssi_plain = f"{ap.rssi}dBm" if ap.rssi else "-"
-        if ap.min_rssi is not None and ap.min_rssi != ap.rssi:
-            rssi_plain += f" (↕{ap.min_rssi})"
-        rssi_padding = rssi_width + len(rssi_colored) - len(rssi_plain)
-
-        # Calculate channel and band padding for ANSI codes
-        if is_visible:
-            ch_padding = 3
-            band_padding = 8
+        # Build line content with row color applied to entire line
+        # All columns are now simple strings, we apply row color at the end
+        if show_rate_real:
+            line_content = (
+                f"{bssid_str:<{bssid_width}}  "
+                f"{rssi_str:<{rssi_width}}  "
+                f"{avg_str:<{avg_width}}  "
+                f"{ch_str:<{ch_width}}  "
+                f"{band_str:<{band_width}}  "
+                f"{rate_max_str:<{rate_max_width}}  "
+                f"{rate_real_str:<{rate_real_width}}  "
+                f"{ssid_str:<{ssid_width}}  "
+                f"{vendor_str:<{vendor_width}}  "
+                f"{sec_str:<{security_width}}  "
+                f"{features_str}"
+            )
         else:
-            ch_plain = str(ap.channel) if ap.channel else "-"
-            band_plain = ap.band or "-"
-            ch_padding = 3 + len(ch_str) - len(ch_plain)
-            band_padding = 8 + len(band_str) - len(band_plain)
-
-        # Build line content with or without ID
-        if show_ids:
-            line_content = f"{id_str:<{id_padding}}  {bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}"
-        else:
-            line_content = f"{bssid_colored:<{bssid_padding}}  {rssi_colored:<{rssi_padding}}  {ch_str:<{ch_padding}}  {band_str:<{band_padding}}  {ssid_display:<{ssid_padding}}  {vendor_display:<{vendor_padding}}  {sec_colored:<{sec_padding}}  {features_str}"
-
-        # If selected, replace all ENDC codes to maintain background highlight
-        if is_selected:
-            # Replace Colors.ENDC with ENDC + bg_highlight to maintain background
-            line_content = line_content.replace(Colors.ENDC, f"{Colors.ENDC}{bg_highlight}")
+            # Without rate_real column (Linux)
+            line_content = (
+                f"{bssid_str:<{bssid_width}}  "
+                f"{rssi_str:<{rssi_width}}  "
+                f"{avg_str:<{avg_width}}  "
+                f"{ch_str:<{ch_width}}  "
+                f"{band_str:<{band_width}}  "
+                f"{rate_max_str:<{rate_max_width}}  "
+                f"{ssid_str:<{ssid_width}}  "
+                f"{vendor_str:<{vendor_width}}  "
+                f"{sec_str:<{security_width}}  "
+                f"{features_str}"
+            )
 
         # Calculate visual length (without ANSI codes) for proper padding
         import re
@@ -991,12 +975,16 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         line_visual_length = len(ansi_escape.sub('', line_content))
         line_padding = max(0, content_width - line_visual_length)
 
-        # Print with borders and optional background highlight
-        # Background goes over content + padding for full line highlight
+        # Apply row color to entire line
+        colored_line = f"{row_color}{line_content}{Colors.ENDC}"
+
+        # If selected, also apply background highlight
         if is_selected:
-            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg_highlight}{line_content}{' ' * line_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            # Replace Colors.ENDC with ENDC + bg_highlight to maintain background
+            colored_line = colored_line.replace(Colors.ENDC, f"{Colors.ENDC}{bg_highlight}")
+            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg_highlight}{colored_line}{' ' * line_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
         else:
-            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {line_content}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {colored_line}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
 
 
 
