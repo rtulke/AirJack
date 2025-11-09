@@ -2462,9 +2462,21 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                         pass  # Silently ignore print errors during popup display
                 break
 
+    # Display refresh timer thread - updates display every second for runtime counter
+    def display_refresh_timer():
+        """Refresh display every second to update runtime counter."""
+        while scan_active.is_set():
+            time.sleep(1)
+            if not popup_active.is_set():
+                update_display()
+
     # Start background scanner (now also handles display)
     scanner_thread = threading.Thread(target=background_scanner, daemon=True)
     scanner_thread.start()
+
+    # Start display refresh timer
+    refresh_timer_thread = threading.Thread(target=display_refresh_timer, daemon=True)
+    refresh_timer_thread.start()
 
     # Setup keyboard input handling for refresh
     import select
