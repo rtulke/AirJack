@@ -817,8 +817,8 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         vendor_width = 12
         features_min = max(8, available - ssid_width - vendor_width)
 
-    # Use full terminal width minus borders (1 char ║ + 1 space on each side)
-    content_width = terminal_width - 4  # Leave space for "║ " and " ║"
+    # Use full terminal width minus borders (1 char │ + 1 space on each side)
+    content_width = terminal_width - 4  # Leave space for "│ " and " │"
 
     # Check if CoreWLAN is available (macOS) to show Rate (real) column
     show_rate_real = COREWLAN_AVAILABLE
@@ -833,10 +833,10 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     if len(header) > content_width:
         header = header[:content_width - 3] + "..."
     header_padding = max(0, content_width - len(header))
-    print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {Colors.BOLD}{header}{Colors.ENDC}{' ' * header_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {Colors.BOLD}{header}{Colors.ENDC}{' ' * header_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
     # Separator line
-    print(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (terminal_width - 2)}╣{Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (terminal_width - 2)}┤{Colors.ENDC}")
 
     for idx, (bssid, ap) in enumerate(sorted_aps):
         # Check if this line is selected
@@ -982,9 +982,9 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         if is_selected:
             # Replace Colors.ENDC with ENDC + bg_highlight to maintain background
             colored_line = colored_line.replace(Colors.ENDC, f"{Colors.ENDC}{bg_highlight}")
-            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {bg_highlight}{colored_line}{' ' * line_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            print(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {bg_highlight}{colored_line}{' ' * line_padding}{bg_reset} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
         else:
-            print(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {colored_line}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            print(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {colored_line}{' ' * line_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
 
 
@@ -1492,15 +1492,15 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             content_lines = []
 
             # Top border
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (term_width - 2)}╗{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}┌{'─' * (term_width - 2)}┐{Colors.ENDC}")
 
             # Title line
             title = f"AirDetect v{VERSION}"
             title_padding = (term_width - 2 - len(title)) // 2
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{Colors.FAIL}{title}{Colors.ENDC}{' ' * (term_width - 2 - title_padding - len(title))}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{Colors.FAIL}{title}{Colors.ENDC}{' ' * (term_width - 2 - title_padding - len(title))}{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
             # Separator
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
             # Calculate runtime
             runtime_seconds = (datetime.datetime.now() - start_time).total_seconds()
@@ -1521,22 +1521,22 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             if info_spacing < 2:
                 # If not enough space, use two lines
                 info1_padding = term_width - 4 - len(info_left)
-                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_left}{' ' * info1_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {info_left}{' ' * info1_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
                 info2_padding = term_width - 4 - len(info_right)
-                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_right}{' ' * info2_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {info_right}{' ' * info2_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
             else:
                 # Both on same line
-                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {info_left}{' ' * info_spacing}{info_right} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {info_left}{' ' * info_spacing}{info_right} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
             # Separator before table
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
             # Display results
             if len(current_aps) == 0:
                 # No APs message with border
                 msg = "[!] No access points detected yet... (scanning)"
                 msg_padding = term_width - 4 - len(msg)
-                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {Colors.WARNING}{msg}{Colors.ENDC}{' ' * msg_padding} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {Colors.WARNING}{msg}{Colors.ENDC}{' ' * msg_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
             else:
                 # Capture table output
                 table_buffer = io.StringIO()
@@ -1556,18 +1556,18 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
             # Add padding empty lines with borders
             for _ in range(padding_lines):
-                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * (term_width - 4)} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * (term_width - 4)} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
             # Separator before footer
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (term_width - 2)}╣{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
             # Footer - right aligned in gray (only essential keys)
             footer = "Enter: menu  |  h: help  |  q: exit"
-            footer_padding = term_width - 4 - len(footer)  # -4 for ║ + space on both sides
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            footer_padding = term_width - 4 - len(footer)  # -4 for │ + space on both sides
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
             # Bottom border
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (term_width - 2)}╝{Colors.ENDC}")
+            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}└{'─' * (term_width - 2)}┘{Colors.ENDC}")
 
             # Print all content
             for line in content_lines:
@@ -1639,20 +1639,20 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         popup_lines = []
 
         # Top border (green like table borders)
-        popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}")
+        popup_lines.append(f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}┌{'─' * (popup_width - 2)}┐{Colors.ENDC}")
 
         # Title line
         if center_title:
             title_padding = (popup_width - 2 - visual_len(title)) // 2
             remaining = popup_width - 2 - visual_len(title) - title_padding
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
         else:
             title_text = f" {title} "
             remaining = popup_width - 2 - visual_len(title_text)
-            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}{Colors.BOLD}{title_text}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}")
+            popup_lines.append(f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}{Colors.BOLD}{title_text}{Colors.ENDC}{' ' * remaining}{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
         # Separator
-        popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}")
+        popup_lines.append(f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}├{'─' * (popup_width - 2)}┤{Colors.ENDC}")
 
         # Content lines (left-aligned with extra space on both sides)
         for i, line in enumerate(content_lines):
@@ -1661,7 +1661,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             line_text = ' ' + (' ' * left_padding) + line
             content_len = visual_len(line_text)
 
-            # Total space inside borders: popup_width - 2 (for the two ║ characters)
+            # Total space inside borders: popup_width - 2 (for the two │ characters)
             # We need: content + padding + 1 space on right = popup_width - 2
             inner_width = popup_width - 2
             padding_needed = inner_width - content_len - 1  # -1 for right space
@@ -1687,14 +1687,14 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
             popup_lines.append(
                 f"\033[{row};{popup_x}H"  # Position cursor at left edge
-                f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Left border with reset
+                f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"  # Left border with reset
                 f"{line_content}"  # Content with padding
                 f"\033[{row};{right_border_x}H"  # Position cursor at right border
-                f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"  # Right border with reset
+                f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"  # Right border with reset
             )
 
         # Bottom border
-        popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}")
+        popup_lines.append(f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}└{'─' * (popup_width - 2)}┘{Colors.ENDC}")
 
         return popup_lines, popup_width, popup_height, popup_x, popup_y
 
@@ -1795,8 +1795,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
                 # Top border (green like table borders)
                 popup_lines.append(
-                    f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╔{'═' * (popup_width - 2)}╗{Colors.ENDC}\033[K"
-                    f"\033[{popup_y};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}┌{'─' * (popup_width - 2)}┐{Colors.ENDC}\033[K"
+                    f"\033[{popup_y};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Title
@@ -1804,24 +1804,24 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 title_padding = (popup_width - 2 - len(title)) // 2
                 remaining = popup_width - 2 - len(title) - title_padding
                 popup_lines.append(
-                    f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                     f"{' ' * title_padding}{Colors.BOLD}{title}{Colors.ENDC}{' ' * remaining}"
-                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Separator
                 popup_lines.append(
-                    f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╠{'═' * (popup_width - 2)}╣{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + 2};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + 2};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}├{'─' * (popup_width - 2)}┤{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 2};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Empty line
                 popup_lines.append(
-                    f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + 3};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                     f"{' ' * (popup_width - 2)}"
-                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + 3};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 3};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Menu items (with space on left and right)
@@ -1841,18 +1841,18 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
                     item_padding = popup_width - 4 - len(item_text)  # -4 for borders + 2 spaces
                     popup_lines.append(
-                        f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                        f"\033[{row};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                         f" {bg}{item_text}{' ' * item_padding}{bg_reset} "
-                        f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
-                        f"\033[{row};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                        f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}\033[K"
+                        f"\033[{row};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                     )
 
                 # Empty line
                 popup_lines.append(
-                    f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + 4 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                     f"{' ' * (popup_width - 2)}"
-                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + 4 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 4 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Footer
@@ -1860,16 +1860,16 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 footer_padding = (popup_width - 2 - len(footer)) // 2
                 remaining = popup_width - 2 - len(footer) - footer_padding
                 popup_lines.append(
-                    f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + 5 + len(menu_items)};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                     f"{' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC}{' ' * remaining}"
-                    f"{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + 5 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + 5 + len(menu_items)};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Bottom border
                 popup_lines.append(
-                    f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}╚{'═' * (popup_width - 2)}╝{Colors.ENDC}\033[K"
-                    f"\033[{popup_y + popup_height - 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}║{Colors.ENDC}"
+                    f"\033[{popup_y + popup_height - 1};{popup_x}H{Colors.BOLD}{Colors.OKGREEN}└{'─' * (popup_width - 2)}┘{Colors.ENDC}\033[K"
+                    f"\033[{popup_y + popup_height - 1};{main_right_border}H{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}"
                 )
 
                 # Display popup
