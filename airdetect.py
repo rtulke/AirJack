@@ -1811,12 +1811,29 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
         try:
             import sys as sys_main
+            import select
 
             # Setup menu options
             setup_menu_items = ["Columns"]
             selected_setup_index = 0
+            needs_table_redraw = True
 
             while True:
+                # Only redraw table when needed (first time or after submenu)
+                if needs_table_redraw:
+                    print("\033[2J\033[H", end='', flush=True)
+
+                    # Temporarily clear popup_active to allow update_display to render
+                    popup_active.clear()
+                    update_display()
+                    popup_active.set()
+
+                    # Small delay to ensure display is rendered before popup
+                    import time
+                    time.sleep(0.05)
+
+                    needs_table_redraw = False
+
                 # Build setup menu
                 setup_lines = []
                 for i, item in enumerate(setup_menu_items):
@@ -1826,7 +1843,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                         setup_lines.append(f"  {item}")
 
                 setup_lines.append("")
-                setup_lines.append("↑/↓: navigate  Enter: select  ESC: close")
+                setup_lines.append("↑/↓: navigate  Enter: select  ESC/q: close")
 
                 # Display setup menu
                 popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
@@ -1844,33 +1861,66 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     key = sys_main.stdin.read(1)
 
                     if key == '\x1b':  # ESC or arrow key
-                        next_char = sys_main.stdin.read(1)
-                        if next_char == '[':
-                            arrow = sys_main.stdin.read(1)
-                            if arrow == 'A':  # Up arrow
-                                selected_setup_index = (selected_setup_index - 1) % len(setup_menu_items)
-                            elif arrow == 'B':  # Down arrow
-                                selected_setup_index = (selected_setup_index + 1) % len(setup_menu_items)
-                        else:
-                            # ESC was pressed
+                        # Try to read the next character with a short timeout
+                        import termios
+                        import fcntl
+                        import os
+
+                        # Save current terminal settings
+                        fd = sys_main.stdin.fileno()
+                        oldflags = fcntl.fcntl(fd, fcntl.F_GETFL)
+
+                        # Set non-blocking
+                        fcntl.fcntl(fd, fcntl.F_SETFL, oldflags | os.O_NONBLOCK)
+
+                        try:
+                            # Try to read more characters (arrow key sequence)
+                            time.sleep(0.05)  # Small delay to let sequence arrive
+                            next_char = sys_main.stdin.read(1)
+                            if next_char == '[':
+                                arrow = sys_main.stdin.read(1)
+                                if arrow == 'A':  # Up arrow
+                                    selected_setup_index = (selected_setup_index - 1) % len(setup_menu_items)
+                                elif arrow == 'B':  # Down arrow
+                                    selected_setup_index = (selected_setup_index + 1) % len(setup_menu_items)
+                                # Continue after arrow key
+                            else:
+                                # ESC with unknown sequence - exit
+                                break
+                        except (IOError, TypeError):
+                            # No more input available - pure ESC key
                             break
+                        finally:
+                            # Restore blocking mode
+                            fcntl.fcntl(fd, fcntl.F_SETFL, oldflags)
                     elif key == '\r' or key == '\n':  # Enter
                         if selected_setup_index == 0:  # Columns
-                            show_column_settings()
-                        # Redraw menu after sub-menu closes
-                        update_display()
+                            result = show_column_settings()
+                            # If user wants to exit completely, break (but currently always returns 'back')
+                            if result == 'exit':
+                                break
+                            # Trigger table redraw after returning from submenu
+                            needs_table_redraw = True
                     elif key == 'q' or key == 'Q':
                         break
 
         finally:
             popup_active.clear()
+            # Clear screen completely and redraw display when exiting setup menu
+            print("\033[2J\033[H", end='', flush=True)
             update_display()
 
     def show_column_settings():
-        """Display and edit column visibility settings."""
+        """Display and edit column visibility settings.
+
+        Returns:
+            'exit' if user wants to exit all menus
+            'back' if user wants to return to previous menu
+        """
         nonlocal column_settings
 
         import sys as sys_main
+        import select
 
         # Column names in display order
         column_names = [
@@ -1888,8 +1938,24 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         ]
 
         selected_col_index = 0
+        needs_table_redraw = True
 
         while True:
+            # Only redraw table when needed (first time or after column toggle)
+            if needs_table_redraw:
+                print("\033[2J\033[H", end='', flush=True)
+
+                # Temporarily clear popup_active to allow update_display to render
+                popup_active.clear()
+                update_display()
+                popup_active.set()
+
+                # Small delay to ensure display is rendered before popup
+                import time
+                time.sleep(0.05)
+
+                needs_table_redraw = False
+
             # Build column settings menu
             col_lines = []
             for i, (col_key, col_display) in enumerate(column_names):
@@ -1900,7 +1966,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     col_lines.append(f"  {checkbox} {col_display}")
 
             col_lines.append("")
-            col_lines.append("↑/↓: navigate  Space: toggle  ESC: back")
+            col_lines.append("↑/↓: navigate  Space: toggle  ESC/q: back")
 
             # Display column settings menu
             popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
@@ -1918,21 +1984,47 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 key = sys_main.stdin.read(1)
 
                 if key == '\x1b':  # ESC or arrow key
-                    next_char = sys_main.stdin.read(1)
-                    if next_char == '[':
-                        arrow = sys_main.stdin.read(1)
-                        if arrow == 'A':  # Up arrow
-                            selected_col_index = (selected_col_index - 1) % len(column_names)
-                        elif arrow == 'B':  # Down arrow
-                            selected_col_index = (selected_col_index + 1) % len(column_names)
-                    else:
-                        # ESC was pressed - exit column settings
-                        break
+                    # Try to read the next character with a short timeout
+                    import termios
+                    import fcntl
+                    import os
+
+                    # Save current terminal settings
+                    fd = sys_main.stdin.fileno()
+                    oldflags = fcntl.fcntl(fd, fcntl.F_GETFL)
+
+                    # Set non-blocking
+                    fcntl.fcntl(fd, fcntl.F_SETFL, oldflags | os.O_NONBLOCK)
+
+                    try:
+                        # Try to read more characters (arrow key sequence)
+                        time.sleep(0.05)  # Small delay to let sequence arrive
+                        next_char = sys_main.stdin.read(1)
+                        if next_char == '[':
+                            arrow = sys_main.stdin.read(1)
+                            if arrow == 'A':  # Up arrow
+                                selected_col_index = (selected_col_index - 1) % len(column_names)
+                            elif arrow == 'B':  # Down arrow
+                                selected_col_index = (selected_col_index + 1) % len(column_names)
+                            # Continue after arrow key
+                        else:
+                            # ESC with unknown sequence - go back to previous menu
+                            return 'back'
+                    except (IOError, TypeError):
+                        # No more input available - pure ESC key - go back to previous menu
+                        return 'back'
+                    finally:
+                        # Restore blocking mode
+                        fcntl.fcntl(fd, fcntl.F_SETFL, oldflags)
                 elif key == ' ':  # Space - toggle checkbox
                     col_key, _ = column_names[selected_col_index]
                     column_settings[col_key] = not column_settings[col_key]
+                    # Trigger table redraw to show updated columns
+                    needs_table_redraw = True
                 elif key == 'q' or key == 'Q':
-                    break
+                    return 'back'
+
+        return 'back'
 
     def show_ap_menu(ap_bssid: str):
         """Show action menu for selected AP."""
