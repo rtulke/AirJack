@@ -1767,6 +1767,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 "",
                 "Actions:",
                 "  Enter      - Open AP menu (Statistics/Info/Signal)",
+                "  s          - Setup menu (Column visibility)",
                 "  h          - Show this help",
                 "  q / ESC    - Quit/Exit",
                 "  Ctrl+C     - Quit/Exit",
@@ -1805,8 +1806,8 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             update_display()
 
     def show_setup_menu():
-        """Display setup menu with column visibility settings."""
-        nonlocal column_settings
+        """Display setup menu with settings configuration."""
+        nonlocal column_settings, interval
         popup_active.set()
 
         try:
@@ -1814,7 +1815,10 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             import select
 
             # Setup menu options
-            setup_menu_items = ["Columns"]
+            setup_menu_items = [
+                "Columns",
+                f"Interval: {interval}s"
+            ]
             selected_setup_index = 0
             needs_table_redraw = True
 
@@ -1833,6 +1837,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     time.sleep(0.05)
 
                     needs_table_redraw = False
+
+                # Update menu items with current values
+                setup_menu_items[1] = f"Interval: {interval}s"
 
                 # Build setup menu
                 setup_lines = []
@@ -1901,6 +1908,12 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                                 break
                             # Trigger table redraw after returning from submenu
                             needs_table_redraw = True
+                        elif selected_setup_index == 1:  # Interval
+                            new_interval = show_interval_input()
+                            if new_interval is not None:
+                                interval = new_interval
+                            # Trigger table redraw after input
+                            needs_table_redraw = True
                     elif key == 'q' or key == 'Q':
                         break
 
@@ -1909,6 +1922,64 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             # Clear screen completely and redraw display when exiting setup menu
             print("\033[2J\033[H", end='', flush=True)
             update_display()
+
+    def show_interval_input():
+        """Show input dialog for changing scan interval.
+
+        Returns:
+            New interval value (int) or None if cancelled
+        """
+        import sys as sys_main
+
+        input_value = ""
+
+        while True:
+            # Build input dialog
+            input_lines = [
+                "Enter new scan interval in seconds (1-999):",
+                "",
+                f"> {input_value}_",
+                "",
+                "Enter: confirm  ESC/q: cancel"
+            ]
+
+            # Display input dialog
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "SCAN INTERVAL",
+                input_lines,
+                center_title=True,
+                left_padding=0
+            )
+
+            # Clear screen and redraw
+            print("\033[2J\033[H", end='', flush=True)
+            popup_active.clear()
+            update_display()
+            popup_active.set()
+
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for input
+            if sys_main.stdin.isatty():
+                key = sys_main.stdin.read(1)
+
+                if key == '\x1b':  # ESC
+                    return None
+                elif key == '\r' or key == '\n':  # Enter
+                    if input_value.isdigit() and len(input_value) > 0:
+                        value = int(input_value)
+                        if 1 <= value <= 999:
+                            return value
+                    # Invalid input, continue
+                elif key == '\x7f' or key == '\b':  # Backspace
+                    input_value = input_value[:-1]
+                elif key.isdigit() and len(input_value) < 3:
+                    input_value += key
+                elif key == 'q' or key == 'Q':
+                    return None
+
+        return None
 
     def show_column_settings():
         """Display and edit column visibility settings.
