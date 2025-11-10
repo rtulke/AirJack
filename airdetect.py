@@ -746,10 +746,18 @@ def get_report_line_count(aps: Dict[str, APInfo]) -> int:
     return base_lines
 
 
-def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None, selected_index: int = -1):
+def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None, selected_index: int = -1, column_settings: dict = None):
     if not aps:
         print("No APs discovered.")
         return
+
+    # Default column settings if not provided
+    if column_settings is None:
+        column_settings = {
+            'bssid': True, 'rssi': True, 'avg': True, 'ch': True, 'band': True,
+            'rate_max': True, 'rate_real': True, 'ssid': True, 'vendor': True,
+            'security': True, 'features': True
+        }
 
     # Sort by visibility first (visible APs first), then by RSSI (strongest signal first)
     # Gray/invisible APs go to the bottom of the list
@@ -778,19 +786,21 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
         terminal_width = term_width
 
     # Fixed column widths (ID column removed from display)
-    bssid_width = 17
-    rssi_width = 8   # Current RSSI: "-59dBm"
-    avg_width = 8    # Average RSSI: "-62dBm"
-    ch_width = 3
-    band_width = 8
-    rate_max_width = 10  # "9608 Mbit"
-    rate_real_width = 10  # "4804 Mbit" (macOS only)
-    security_width = 18
-    separators = 9 * 2  # Number of "  " separators between columns
+    col_widths = {
+        'bssid': 17,
+        'rssi': 8,
+        'avg': 8,
+        'ch': 3,
+        'band': 8,
+        'rate_max': 10,
+        'rate_real': 10,
+        'security': 18
+    }
 
-    # Calculate fixed space used
-    fixed_space = (bssid_width + rssi_width + avg_width + ch_width +
-                   band_width + rate_max_width + rate_real_width + security_width + separators)
+    # Count enabled columns and calculate fixed space
+    enabled_cols = [k for k, v in column_settings.items() if v and k in col_widths]
+    num_separators = len(enabled_cols) + 2  # +2 for ssid, vendor (always count for spacing)
+    fixed_space = sum(col_widths[k] for k in enabled_cols) + (num_separators * 2)
 
     # Available space for SSID, Vendor, and Features
     available = max(40, terminal_width - fixed_space - 10)  # Min 40, reserve 10 for features
@@ -821,13 +831,40 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     content_width = terminal_width - 4  # Leave space for "│ " and " │"
 
     # Check if CoreWLAN is available (macOS) to show Rate (real) column
-    show_rate_real = COREWLAN_AVAILABLE
+    show_rate_real = COREWLAN_AVAILABLE and column_settings.get('rate_real', True)
 
-    # Print column header (ID column removed from display)
-    if show_rate_real:
-        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'avg':<{avg_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'rate(max)':<{rate_max_width}}  {'rate(real)':<{rate_real_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
-    else:
-        header = f"{'bssid':<{bssid_width}}  {'rssi':<{rssi_width}}  {'avg':<{avg_width}}  {'ch':<{ch_width}}  {'band':<{band_width}}  {'rate(max)':<{rate_max_width}}  {'ssid':<{ssid_width}}  {'vendor':<{vendor_width}}  {'security':<{security_width}}  {'features'}"
+    # Build column header dynamically based on enabled columns
+    header_parts = []
+    col_names = {
+        'bssid': 'bssid',
+        'rssi': 'rssi',
+        'avg': 'avg',
+        'ch': 'ch',
+        'band': 'band',
+        'rate_max': 'rate(max)',
+        'rate_real': 'rate(real)',
+        'ssid': 'ssid',
+        'vendor': 'vendor',
+        'security': 'security',
+        'features': 'features'
+    }
+
+    # Add headers for enabled columns
+    for col_key, col_name in col_names.items():
+        if not column_settings.get(col_key, True):
+            continue
+        if col_key == 'rate_real' and not COREWLAN_AVAILABLE:
+            continue
+        if col_key in col_widths:
+            header_parts.append(f"{col_name:<{col_widths[col_key]}}")
+        elif col_key == 'ssid':
+            header_parts.append(f"{col_name:<{ssid_width}}")
+        elif col_key == 'vendor':
+            header_parts.append(f"{col_name:<{vendor_width}}")
+        elif col_key == 'features':
+            header_parts.append(col_name)
+
+    header = "  ".join(header_parts)
 
     # Truncate or pad header to fit content width
     if len(header) > content_width:
@@ -938,36 +975,36 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
 
         features_str = " ".join(features) if features else "-"
 
-        # Build line content with row color applied to entire line
-        # All columns are now simple strings, we apply row color at the end
-        if show_rate_real:
-            line_content = (
-                f"{bssid_str:<{bssid_width}}  "
-                f"{rssi_str:<{rssi_width}}  "
-                f"{avg_str:<{avg_width}}  "
-                f"{ch_str:<{ch_width}}  "
-                f"{band_str:<{band_width}}  "
-                f"{rate_max_str:<{rate_max_width}}  "
-                f"{rate_real_str:<{rate_real_width}}  "
-                f"{ssid_str:<{ssid_width}}  "
-                f"{vendor_str:<{vendor_width}}  "
-                f"{sec_str:<{security_width}}  "
-                f"{features_str}"
-            )
-        else:
-            # Without rate_real column (Linux)
-            line_content = (
-                f"{bssid_str:<{bssid_width}}  "
-                f"{rssi_str:<{rssi_width}}  "
-                f"{avg_str:<{avg_width}}  "
-                f"{ch_str:<{ch_width}}  "
-                f"{band_str:<{band_width}}  "
-                f"{rate_max_str:<{rate_max_width}}  "
-                f"{ssid_str:<{ssid_width}}  "
-                f"{vendor_str:<{vendor_width}}  "
-                f"{sec_str:<{security_width}}  "
-                f"{features_str}"
-            )
+        # Build line content dynamically based on enabled columns
+        line_parts = []
+        col_data = {
+            'bssid': (bssid_str, col_widths['bssid']),
+            'rssi': (rssi_str, col_widths['rssi']),
+            'avg': (avg_str, col_widths['avg']),
+            'ch': (ch_str, col_widths['ch']),
+            'band': (band_str, col_widths['band']),
+            'rate_max': (rate_max_str, col_widths['rate_max']),
+            'rate_real': (rate_real_str, col_widths['rate_real']),
+            'ssid': (ssid_str, ssid_width),
+            'vendor': (vendor_str, vendor_width),
+            'security': (sec_str, col_widths['security']),
+            'features': (features_str, 0)  # No width for features (last column)
+        }
+
+        # Add columns in order if enabled
+        for col_key in col_names.keys():
+            if not column_settings.get(col_key, True):
+                continue
+            if col_key == 'rate_real' and not show_rate_real:
+                continue
+
+            data, width = col_data[col_key]
+            if col_key == 'features':
+                line_parts.append(data)  # Features is last, no padding
+            else:
+                line_parts.append(f"{data:<{width}}")
+
+        line_content = "  ".join(line_parts)
 
         # Calculate visual length (without ANSI codes) for proper padding
         import re
@@ -1559,7 +1596,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 sys_module.stdout = table_buffer
                 # Pass selected_index if navigation is enabled
                 current_selection = selected_index if navigation_enabled else -1
-                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width, selected_index=current_selection)
+                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width, selected_index=current_selection, column_settings=column_settings)
                 sys_module.stdout = old_stdout_temp
                 content_lines.extend(table_buffer.getvalue().rstrip('\n').split('\n'))
 
