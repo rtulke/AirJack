@@ -1440,6 +1440,21 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     selected_index = 0  # Currently selected AP index (0-based)
     navigation_enabled = False  # Toggle navigation mode
 
+    # Column visibility settings (all enabled by default)
+    column_settings = {
+        'bssid': True,
+        'rssi': True,
+        'avg': True,
+        'ch': True,
+        'band': True,
+        'rate_max': True,
+        'rate_real': True,
+        'ssid': True,
+        'vendor': True,
+        'security': True,
+        'features': True
+    }
+
     # Statistics tracking
     start_time = datetime.datetime.now()
     total_scans = 0
@@ -1562,7 +1577,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
             # Footer - right aligned in gray (only essential keys)
-            footer = "Enter: menu  |  h: help  |  q: exit"
+            footer = "Enter: menu  |  s: setup  |  h: help  |  q: exit"
             footer_padding = term_width - 4 - len(footer)  # -4 for │ + space on both sides
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
@@ -1751,6 +1766,136 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
 
             # Refresh display to clear popup
             update_display()
+
+    def show_setup_menu():
+        """Display setup menu with column visibility settings."""
+        nonlocal column_settings
+        popup_active.set()
+
+        try:
+            import sys as sys_main
+
+            # Setup menu options
+            setup_menu_items = ["Columns"]
+            selected_setup_index = 0
+
+            while True:
+                # Build setup menu
+                setup_lines = []
+                for i, item in enumerate(setup_menu_items):
+                    if i == selected_setup_index:
+                        setup_lines.append(f"▶ {item}")
+                    else:
+                        setup_lines.append(f"  {item}")
+
+                setup_lines.append("")
+                setup_lines.append("↑/↓: navigate  Enter: select  ESC: close")
+
+                # Display setup menu
+                popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                    "SETUP",
+                    setup_lines,
+                    center_title=True,
+                    left_padding=0
+                )
+
+                for line in popup_lines:
+                    print(line, end='', flush=True)
+
+                # Wait for input
+                if sys_main.stdin.isatty():
+                    key = sys_main.stdin.read(1)
+
+                    if key == '\x1b':  # ESC or arrow key
+                        next_char = sys_main.stdin.read(1)
+                        if next_char == '[':
+                            arrow = sys_main.stdin.read(1)
+                            if arrow == 'A':  # Up arrow
+                                selected_setup_index = (selected_setup_index - 1) % len(setup_menu_items)
+                            elif arrow == 'B':  # Down arrow
+                                selected_setup_index = (selected_setup_index + 1) % len(setup_menu_items)
+                        else:
+                            # ESC was pressed
+                            break
+                    elif key == '\r' or key == '\n':  # Enter
+                        if selected_setup_index == 0:  # Columns
+                            show_column_settings()
+                        # Redraw menu after sub-menu closes
+                        update_display()
+                    elif key == 'q' or key == 'Q':
+                        break
+
+        finally:
+            popup_active.clear()
+            update_display()
+
+    def show_column_settings():
+        """Display and edit column visibility settings."""
+        nonlocal column_settings
+
+        import sys as sys_main
+
+        # Column names in display order
+        column_names = [
+            ('bssid', 'BSSID'),
+            ('rssi', 'RSSI'),
+            ('avg', 'Avg'),
+            ('ch', 'Channel'),
+            ('band', 'Band'),
+            ('rate_max', 'Rate (max)'),
+            ('rate_real', 'Rate (real)'),
+            ('ssid', 'SSID'),
+            ('vendor', 'Vendor'),
+            ('security', 'Security'),
+            ('features', 'Features')
+        ]
+
+        selected_col_index = 0
+
+        while True:
+            # Build column settings menu
+            col_lines = []
+            for i, (col_key, col_display) in enumerate(column_names):
+                checkbox = "[x]" if column_settings[col_key] else "[ ]"
+                if i == selected_col_index:
+                    col_lines.append(f"▶ {checkbox} {col_display}")
+                else:
+                    col_lines.append(f"  {checkbox} {col_display}")
+
+            col_lines.append("")
+            col_lines.append("↑/↓: navigate  Space: toggle  ESC: back")
+
+            # Display column settings menu
+            popup_lines, popup_width, popup_height, popup_x, popup_y = create_popup(
+                "COLUMN VISIBILITY",
+                col_lines,
+                center_title=True,
+                left_padding=0
+            )
+
+            for line in popup_lines:
+                print(line, end='', flush=True)
+
+            # Wait for input
+            if sys_main.stdin.isatty():
+                key = sys_main.stdin.read(1)
+
+                if key == '\x1b':  # ESC or arrow key
+                    next_char = sys_main.stdin.read(1)
+                    if next_char == '[':
+                        arrow = sys_main.stdin.read(1)
+                        if arrow == 'A':  # Up arrow
+                            selected_col_index = (selected_col_index - 1) % len(column_names)
+                        elif arrow == 'B':  # Down arrow
+                            selected_col_index = (selected_col_index + 1) % len(column_names)
+                    else:
+                        # ESC was pressed - exit column settings
+                        break
+                elif key == ' ':  # Space - toggle checkbox
+                    col_key, _ = column_names[selected_col_index]
+                    column_settings[col_key] = not column_settings[col_key]
+                elif key == 'q' or key == 'Q':
+                    break
 
     def show_ap_menu(ap_bssid: str):
         """Show action menu for selected AP."""
@@ -2591,6 +2736,9 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                     elif input_chars.lower() == 'h':
                         # Show help popup
                         show_help_popup()
+                    elif input_chars.lower() == 's':
+                        # Show setup menu
+                        show_setup_menu()
                     elif input_chars.lower() == 'r' or input_chars == '\x0c':  # r or Ctrl+L
                         # Trigger immediate display update
                         update_display()
