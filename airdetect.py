@@ -2786,6 +2786,18 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     except KeyboardInterrupt:
         pass
 
+    # Block display updates immediately (before stopping scan)
+    popup_active.set()
+
+    # Stop the scan and display refresh to prevent overwrites
+    scan_active.clear()
+
+    # Wait a moment for threads to finish
+    time.sleep(0.3)
+
+    # Clear screen completely before showing statistics
+    print("\033[2J\033[H", end='', flush=True)
+
     # Restore terminal settings and show cursor
     if sys_main.stdin.isatty():
         termios.tcsetattr(sys_main.stdin, termios.TCSADRAIN, old_settings)
