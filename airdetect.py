@@ -746,7 +746,7 @@ def get_report_line_count(aps: Dict[str, APInfo]) -> int:
     return base_lines
 
 
-def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None, selected_index: int = -1, column_settings: dict = None):
+def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids: bool = False, term_width: int = None, selected_index: int = -1, column_settings: dict = None, viewport_offset: int = 0, viewport_limit: int = None):
     if not aps:
         print("No APs discovered.")
         return
@@ -875,7 +875,18 @@ def print_report(aps: Dict[str, APInfo], show_timestamp: bool = False, show_ids:
     # Separator line
     print(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (terminal_width - 2)}┤{Colors.ENDC}")
 
-    for idx, (bssid, ap) in enumerate(sorted_aps):
+    # Calculate viewport range
+    total_aps = len(sorted_aps)
+    if viewport_limit is not None:
+        viewport_end = min(viewport_offset + viewport_limit, total_aps)
+        viewport_aps = sorted_aps[viewport_offset:viewport_end]
+    else:
+        viewport_aps = sorted_aps
+        viewport_offset = 0
+
+    for viewport_idx, (bssid, ap) in enumerate(viewport_aps):
+        # Calculate actual index in the full list
+        idx = viewport_offset + viewport_idx
         # Check if this line is selected
         is_selected = (idx == selected_index and selected_index >= 0)
 
@@ -1476,6 +1487,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     popup_active = threading.Event()  # Flag to prevent display updates while popup is shown
     selected_index = 0  # Currently selected AP index (0-based)
     navigation_enabled = False  # Toggle navigation mode
+    scroll_offset = 0  # Scroll offset for table viewport (0-based)
 
     # Column visibility settings (all enabled by default)
     column_settings = {
@@ -1515,7 +1527,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
     # Display update function
     def update_display():
         """Update the terminal display with current AP pool."""
-        nonlocal previous_line_count, first_display
+        nonlocal previous_line_count, first_display, scroll_offset
 
         # Don't update if popup is active
         if popup_active.is_set():
@@ -1559,8 +1571,25 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             runtime_str = format_runtime(runtime_seconds)
             scan_duration_str = f"{last_scan_duration:.2f}s" if last_scan_duration > 0 else "N/A"
 
+            # Calculate available height for scroll indicator
+            header_lines_estimate = 6
+            footer_lines = 3
+            table_header_lines = 2
+            available_height = term_height - header_lines_estimate - footer_lines - table_header_lines
+            viewport_limit_info = max(5, available_height)
+
+            # Build AP info with scroll indicator if needed
+            total_aps = len(current_aps)
+            if total_aps > viewport_limit_info:
+                # Show scroll indicator
+                viewport_start = scroll_offset + 1
+                viewport_end = min(scroll_offset + viewport_limit_info, total_aps)
+                ap_info = f"APs: {total_aps} (showing {viewport_start}-{viewport_end})"
+            else:
+                ap_info = f"APs: {total_aps}"
+
             # Info line 1: Runtime on left, Last Scan on right
-            info_left = f"Runtime: {runtime_str}  |  APs: {len(current_aps)}  |  Interval: {interval}s"
+            info_left = f"Runtime: {runtime_str}  |  {ap_info}  |  Interval: {interval}s"
 
             time_diff = abs((last_scan_time - last_change_time).total_seconds())
             if time_diff > 2:
@@ -1583,6 +1612,18 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             # Separator before table
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
+            # Calculate available height for table (needed for both empty and non-empty cases)
+            # Header: top border (1) + title (1) + separator (1) + info lines (1-2) + separator (1) = 5-6 lines
+            # Footer: separator (1) + footer (1) + bottom border (1) = 3 lines
+            # Table header: header line (1) + separator (1) = 2 lines
+            header_lines = len(content_lines)  # Current header lines
+            footer_lines = 3
+            table_header_lines = 2
+            available_height = term_height - header_lines - footer_lines - table_header_lines
+
+            # Calculate viewport limit (max APs to display)
+            viewport_limit = max(5, available_height)  # At least 5 lines
+
             # Display results
             if len(current_aps) == 0:
                 # No APs message with border
@@ -1590,13 +1631,14 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                 msg_padding = term_width - 4 - len(msg)
                 content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {Colors.WARNING}{msg}{Colors.ENDC}{' ' * msg_padding} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
             else:
+
                 # Capture table output
                 table_buffer = io.StringIO()
                 old_stdout_temp = sys_module.stdout
                 sys_module.stdout = table_buffer
                 # Pass selected_index if navigation is enabled
                 current_selection = selected_index if navigation_enabled else -1
-                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width, selected_index=current_selection, column_settings=column_settings)
+                print_report(current_aps, show_timestamp=False, show_ids=True, term_width=term_width, selected_index=current_selection, column_settings=column_settings, viewport_offset=scroll_offset, viewport_limit=viewport_limit)
                 sys_module.stdout = old_stdout_temp
                 content_lines.extend(table_buffer.getvalue().rstrip('\n').split('\n'))
 
@@ -1613,10 +1655,35 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
             # Separator before footer
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}├{'─' * (term_width - 2)}┤{Colors.ENDC}")
 
-            # Footer - right aligned in gray (only essential keys)
-            footer = "Enter: menu  |  s: setup  |  h: help  |  q: exit"
-            footer_padding = term_width - 4 - len(footer)  # -4 for │ + space on both sides
-            content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
+            # Footer with scroll indicators if needed
+            footer_right = "Enter: menu  |  s: setup  |  h: help  |  q: exit"
+
+            # Add scroll indicators if there are more APs than fit in viewport
+            if len(current_aps) > viewport_limit:
+                can_scroll_up = scroll_offset > 0
+                can_scroll_down = scroll_offset + viewport_limit < len(current_aps)
+
+                if can_scroll_up and can_scroll_down:
+                    scroll_indicator = "↑↓"
+                elif can_scroll_up:
+                    scroll_indicator = "↑ "
+                elif can_scroll_down:
+                    scroll_indicator = " ↓"
+                else:
+                    scroll_indicator = ""
+
+                if scroll_indicator.strip():
+                    footer_left = f"{Colors.BOLD}{Colors.OKCYAN}{scroll_indicator}{Colors.ENDC}"
+                    # Calculate padding between left and right
+                    # -4 for borders and spaces, -2 for scroll indicator visual length
+                    footer_padding = term_width - 4 - 2 - len(footer_right)
+                    content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {footer_left}{' ' * footer_padding}{Colors.GRAY}{footer_right}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
+                else:
+                    footer_padding = term_width - 4 - len(footer_right)
+                    content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer_right}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
+            else:
+                footer_padding = term_width - 4 - len(footer_right)
+                content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC} {' ' * footer_padding}{Colors.GRAY}{footer_right}{Colors.ENDC} {Colors.BOLD}{Colors.OKGREEN}│{Colors.ENDC}")
 
             # Bottom border
             content_lines.append(f"{Colors.BOLD}{Colors.OKGREEN}└{'─' * (term_width - 2)}┘{Colors.ENDC}")
@@ -1645,6 +1712,43 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
         # Store line count for next iteration
         previous_line_count = current_line_count
         first_display = False
+
+    def adjust_scroll_offset():
+        """Adjust scroll_offset to keep selected_index visible in the viewport."""
+        nonlocal scroll_offset
+
+        # Get terminal height and calculate viewport limit
+        import shutil
+        term_size = shutil.get_terminal_size(fallback=(120, 24))
+        term_height = term_size.lines
+
+        # Calculate available height for table (same calculation as in update_display)
+        # Estimate header lines: 5-6 (top border, title, separator, info, separator)
+        # We'll use a conservative estimate of 6
+        header_lines = 6
+        footer_lines = 3
+        table_header_lines = 2
+        available_height = term_height - header_lines - footer_lines - table_header_lines
+        viewport_limit = max(5, available_height)
+
+        # Get current AP count to validate scroll_offset
+        with ap_pool_lock:
+            ap_count = len(ap_pool)
+
+        # Ensure scroll_offset is within valid range
+        max_scroll = max(0, ap_count - viewport_limit)
+        scroll_offset = min(scroll_offset, max_scroll)
+
+        # Adjust scroll_offset to keep selected_index visible
+        if selected_index < scroll_offset:
+            # Selected item is above viewport, scroll up
+            scroll_offset = selected_index
+        elif selected_index >= scroll_offset + viewport_limit:
+            # Selected item is below viewport, scroll down
+            scroll_offset = selected_index - viewport_limit + 1
+
+        # Ensure scroll_offset is non-negative
+        scroll_offset = max(0, scroll_offset)
 
     def create_popup(title: str, content_lines: list, center_title: bool = True, left_padding: int = 2):
         """
@@ -2883,6 +2987,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = max(0, selected_index - 1)
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\x1b[B':  # Down arrow
                         navigation_enabled = True
@@ -2890,6 +2995,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = min(ap_count - 1, selected_index + 1)
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\x1b[5~':  # Page Up
                         navigation_enabled = True
@@ -2897,6 +3003,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = max(0, selected_index - 5)
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\x1b[6~':  # Page Down
                         navigation_enabled = True
@@ -2904,6 +3011,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = min(ap_count - 1, selected_index + 5)
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\x1b[H' or input_chars == '\x1b[1~':  # Home
                         navigation_enabled = True
@@ -2911,6 +3019,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = 0
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\x1b[F' or input_chars == '\x1b[4~':  # End
                         navigation_enabled = True
@@ -2918,6 +3027,7 @@ def permanent_scan_mode(interval: int, observe_eapol: bool, iface: Optional[str]
                             ap_count = len(ap_pool)
                         if ap_count > 0:
                             selected_index = ap_count - 1
+                            adjust_scroll_offset()
                             update_display()
                     elif input_chars == '\n' or input_chars == '\r':  # Enter
                         # Show AP menu for selected item
