@@ -1,6 +1,6 @@
 # AirJack
 
-AirJack scans nearby Wi‑Fi networks on macOS using CoreWLAN, helps you pick a target, and orchestrates [AirSnare](https://github.com/rtulke/airsnare) plus hcxtools to capture WPA/WPA2/WPA3 handshakes. It then converts the capture to hashcat format and guides you through dictionary, brute‑force, or manual cracking workflows with optional cleanup for sensitive files.
+AirJack scans nearby Wi‑Fi networks on macOS using CoreWLAN, helps you pick a target, and orchestrates [AirSnare](https://github.com/rtulke/airsnare) plus [hcxpcapngtool](https://github.com/ZerBea/hcxtools) to capture WPA/WPA2/WPA3 handshakes. It then converts the capture to [hashcat](https://hashcat.net/hashcat/) format and guides you through dictionary, brute‑force, or manual cracking workflows with optional cleanup for sensitive files.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
