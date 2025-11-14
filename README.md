@@ -29,7 +29,7 @@ These tools must be installed separately:
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
 
-### Quick Setup
+### Quick Setup (macOS)
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/rtulke/AirJack/main/install.sh)"
 ```
@@ -39,9 +39,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/rtulke/AirJack/main/inst
 pip install -r requirements.txt
 ```
 
-## Manuel Installation
+## Manuel Installation (macOS)
 
-1. Clone the repository:
+1. Clone the repository and install virutal python environment:
 ```bash
 git clone https://github.com/rtulke/AirJack.git
 cd AirJack
@@ -68,7 +68,7 @@ cd airsnare
 make
 ```
 
-5. Setup System wide
+5. Setup system wide
 ```bash
 # Copy AirJack script to `/usr/local/bin/airjack`
 sudo cp airjack.py /usr/local/bin/airjack
@@ -90,7 +90,6 @@ $ vim ~/.airjack.conf
 # Try using the manual
 $ man airjack
 ```
-
 
 ## Usage
 
