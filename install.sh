@@ -185,7 +185,7 @@ install_airsnare() {
                 print_message "Compiling airesnare..."
                 make
                 make install
-                print_success "Zizzania installed at ~/airesnare"
+                print_success "AirSnare installed at ~/airesnare"
                 AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
             elif [ -f "config.Makefile" ]; then
                 print_message "Using config.Makefile..."
@@ -408,7 +408,7 @@ detect_tool_paths() {
         print_success "Found AirSnare at: $AIRSNARE_PATH"
     else
         AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
-        print_warning "Zizzania not found, will use default: $AIRSNARE_PATH"
+        print_warning "AirSnare not found, will use default: $AIRSNARE_PATH"
     fi
     
     # Update configuration with correct paths
