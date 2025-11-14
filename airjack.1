@@ -44,12 +44,14 @@ These options override paths to external dependencies. By default, the tool sear
 for tools in standard locations and uses paths from the configuration file.
 .TP
 .BI "\-\-hashcat\-path=" PATH
-Full path to the hashcat executable. Default search order: 1) configuration file,
-2) \fI~/hashcat/hashcat\fR, 3) system PATH.
+Full path to the hashcat executable. If not provided, AirJack uses the configuration
+file value (when set) or auto-detects via \fB$PATH\fR/Homebrew before falling back to
+\fI~/hashcat/hashcat\fR.
 .TP
 .BI "\-\-airsnare\-path=" PATH
-Full path to the airsnare executable. Default search order: 1) configuration file,
-2) \fI~/airsnare/src/airsnare\fR, 3) system PATH.
+Full path to the airsnare executable. If not provided, AirJack uses the configuration
+file value (when set) or auto-detects via \fB$PATH\fR/Homebrew before falling back to
+\fI~/airsnare/src/airsnare\fR.
 
 .SS Network Selection
 .TP
@@ -266,7 +268,8 @@ Run dictionary attack and automatically delete capture files after completion
 for operational security.
 .TP
 .B airjack \-\-ignore\-missing \-\-no\-banner
-Run without checking for external tools and suppress the banner. Advanced users only.
+Allow execution even if required external tools are missing and suppress the banner.
+AirJack will still log missing dependencies; use with caution.
 .TP
 .B airjack \-\-auth\-timeout 120
 Increase Location Services authorization timeout to 2 minutes for slower systems
@@ -313,8 +316,8 @@ Uses hcxpcapngtool to convert pcap file to hashcat hc22000 format.
 .PP
 .B 5. Password Cracking
 .RS
-Uses hashcat in dictionary mode (3) or brute-force mode (6) to recover the network
-password from the captured handshake.
+Uses hashcat in dictionary mode (\fB\-a 0\fR) or brute-force mode (\fB\-a 3\fR) to
+recover the network password from the captured handshake.
 .RE
 
 .SH DEPENDENCIES
@@ -327,7 +330,7 @@ or download from https://hashcat.net/hashcat/
 .TP
 .B airsnare
 WiFi handshake capture tool for macOS. Clone and build from:
-https://github.com/cyrus-and/airsnare
+https://github.com/rtulke/airsnare
 .TP
 .B hcxpcapngtool
 Part of hcxtools, converts pcap to hashcat format. Install via Homebrew:
@@ -349,8 +352,8 @@ pyobjc-framework-CoreLocation \- macOS Location Services bindings
 .SH ENVIRONMENT
 .TP
 .B PATH
-Searched for external tools (hashcat, hcxpcapngtool) if not specified in configuration
-or command-line options.
+Searched for external tools (hashcat, airsnare, hcxpcapngtool) if not specified in
+configuration or command-line options.
 
 .SH EXIT STATUS
 .TP
