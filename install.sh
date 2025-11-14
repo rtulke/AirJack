@@ -148,7 +148,7 @@ install_tools() {
 
 # Install AirSnare
 install_airsnare() {
-    if ask_continue "Install AirSnare (zizzania) - required for handshake capture?"; then
+    if ask_continue "Install AirSnare - required for handshake capture?"; then
         print_message "Installing AirSnare dependencies..."
         brew install --formula cmake libpcap wget
         

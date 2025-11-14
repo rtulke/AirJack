@@ -11,7 +11,7 @@ airjack \- WiFi security testing tool for macOS
 .B airjack
 is a comprehensive WiFi security testing tool designed specifically for macOS systems.
 It leverages the CoreWLAN framework to scan for available wireless networks, capture
-WPA/WPA2/WPA3 handshakes using zizzania, and attempts to recover network passwords
+WPA/WPA2/WPA3 handshakes using airsnare, and attempts to recover network passwords
 using hashcat with dictionary or brute-force attacks.
 
 .PP
@@ -47,9 +47,9 @@ for tools in standard locations and uses paths from the configuration file.
 Full path to the hashcat executable. Default search order: 1) configuration file,
 2) \fI~/hashcat/hashcat\fR, 3) system PATH.
 .TP
-.BI "\-\-zizzania\-path=" PATH
-Full path to the zizzania executable. Default search order: 1) configuration file,
-2) \fI~/zizzania/src/zizzania\fR, 3) system PATH.
+.BI "\-\-airsnare\-path=" PATH
+Full path to the airsnare executable. Default search order: 1) configuration file,
+2) \fI~/airsnare/src/airsnare\fR, 3) system PATH.
 
 .SS Network Selection
 .TP
@@ -132,12 +132,12 @@ completion. Useful for maintaining operational security by removing evidence. Us
 caution.
 .TP
 .B \-\-dry\-run
-Simulate the complete workflow without actually running external tools (hashcat, zizzania,
+Simulate the complete workflow without actually running external tools (hashcat, airsnare,
 hcxpcapngtool). Useful for testing configuration and debugging. Shows what commands would
 be executed.
 .TP
 .B \-\-ignore\-missing
-Continue execution even if required external tools (hashcat, zizzania, hcxpcapngtool)
+Continue execution even if required external tools (hashcat, airsnare, hcxpcapngtool)
 are not found. Useful for partial testing or when tools are installed in non-standard
 locations.
 .TP
@@ -187,7 +187,7 @@ cleanup = false
 
 [Paths]
 hashcat_path = /usr/local/bin/hashcat
-zizzania_path = /usr/local/bin/zizzania
+airsnare_path = /usr/local/bin/airsnare
 
 [Defaults]
 interface = en0
@@ -300,7 +300,7 @@ Interactive menu to select target network, or automatic selection with \fB\-n\fR
 .PP
 .B 3. Handshake Capture
 .RS
-Uses zizzania to capture WPA/WPA2 4-way handshake or PMKID. Optionally uses deauth
+Uses airsnare to capture WPA/WPA2 4-way handshake or PMKID. Optionally uses deauth
 attacks to force client reconnections.
 .RE
 
@@ -325,9 +325,9 @@ The following external tools are required for full functionality:
 GPU-accelerated password recovery tool. Install via Homebrew: \fBbrew install hashcat\fR
 or download from https://hashcat.net/hashcat/
 .TP
-.B zizzania
+.B airsnare
 WiFi handshake capture tool for macOS. Clone and build from:
-https://github.com/cyrus-and/zizzania
+https://github.com/cyrus-and/airsnare
 .TP
 .B hcxpcapngtool
 Part of hcxtools, converts pcap to hashcat format. Install via Homebrew:
@@ -400,9 +400,9 @@ Ensure Location Services permission is granted for Terminal or Python. Check
 System Settings \(-> Privacy & Security \(-> Location Services.
 On macOS 15+, use system Python: \fB/usr/bin/python3 airjack.py\fR
 .TP
-.B "hashcat not found" or "zizzania not found"
+.B "hashcat not found" or "airsnare not found"
 Install missing dependencies via Homebrew or specify custom paths with
-\fB\-\-hashcat\-path\fR and \fB\-\-zizzania\-path\fR options.
+\fB\-\-hashcat\-path\fR and \fB\-\-airsnare\-path\fR options.
 .TP
 .B "Capture file not found: capture.hc22000"
 No valid handshake was captured. Enable deauth with \fB\-d\fR or wait for clients
