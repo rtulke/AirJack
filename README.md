@@ -25,7 +25,7 @@ This tool is provided for **EDUCATIONAL PURPOSES ONLY**. Only use AirJack on net
 ### External Dependencies
 These tools must be installed separately:
 - [hashcat](https://hashcat.net/hashcat/) - Password recovery utility
-- [zizzania](https://github.com/cyrus-and/zizzania) - WPA handshake capture tool
+- [zizzania](https://github.com/rtulke/zizzania) - WPA handshake capture tool
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
 
@@ -63,7 +63,7 @@ pip install -r requirements.txt
 brew install hashcat hcxtools
 
 # Install zizzania
-git clone https://github.com/cyrus-and/zizzania.git ~/zizzania
+git clone https://github.com/rtulke/zizzania.git ~/zizzania
 cd ~/zizzania
 make
 ```
