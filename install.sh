@@ -146,93 +146,93 @@ install_tools() {
     fi
 }
 
-# Install zizzania
-install_zizzania() {
-    if ask_continue "Install zizzania (required for handshake capture)?"; then
-        print_message "Installing zizzania dependencies..."
+# Install AirSnare
+install_airsnare() {
+    if ask_continue "Install AirSnare (zizzania) - required for handshake capture?"; then
+        print_message "Installing AirSnare dependencies..."
         brew install --formula cmake libpcap wget
         
-        # Set up environment for zizzania compilation
+        # Set up environment for AirSnare compilation
         export LDFLAGS="-L$(brew --prefix libpcap)/lib"
         export CPPFLAGS="-I$(brew --prefix libpcap)/include"
         export PKG_CONFIG_PATH="$(brew --prefix libpcap)/lib/pkgconfig"
         
-        print_message "Cloning zizzania repository..."
-        if [ -d ~/zizzania ]; then
-            print_warning "Zizzania directory already exists at ~/zizzania."
-            if ask_continue "Re-install zizzania?"; then
-                rm -rf ~/zizzania
-                git clone https://github.com/cyrus-and/zizzania.git ~/zizzania
+        print_message "Cloning AirSnare repository..."
+        if [ -d ~/airsnare ]; then
+            print_warning "AirSnare directory already exists at ~/airsnare."
+            if ask_continue "Re-install AirSnare?"; then
+                rm -rf ~/airsnare
+                git clone https://github.com/rtulke/airsnare.git ~/airsnare
             fi
         else
-            git clone https://github.com/cyrus-and/zizzania.git ~/zizzania
+            git clone https://github.com/rtulke/airsnare.git ~/airsnare
         fi
         
-        if [ -d ~/zizzania ]; then
-            cd ~/zizzania
-            print_message "Configuring zizzania..."
+        if [ -d ~/airsnare ]; then
+            cd ~/airsnare
+            print_message "Configuring AirSnare..."
             
             # Check for different build systems
             if [ -f "CMakeLists.txt" ]; then
                 mkdir -p build
                 cd build
                 cmake ..
-                print_message "Compiling zizzania..."
+                print_message "Compiling AirSnare..."
                 make
-                print_success "Zizzania installed at ~/zizzania/build"
-                ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
+                print_success "AirSnare installed at ~/airesnare/build"
+                AIRSNARE_PATH="$HOME/airesnare/build/airesnare"
             elif [ -f "Makefile" ]; then
-                print_message "Compiling zizzania..."
+                print_message "Compiling airesnare..."
                 make
                 make install
-                print_success "Zizzania installed at ~/zizzania"
-                ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+                print_success "Zizzania installed at ~/airesnare"
+                AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
             elif [ -f "config.Makefile" ]; then
                 print_message "Using config.Makefile..."
                 make -f config.Makefile
-                print_message "Compiling zizzania..."
+                print_message "Compiling AirSnare..."
                 make
-                print_success "Zizzania installed at ~/zizzania"
-                ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+                print_success "AirSnare installed at ~/airesnare"
+                AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
             else
                 print_message "Manual build required. Attempting autogen/configure..."
                 if [ -f "autogen.sh" ]; then
                     ./autogen.sh
                     ./configure
                     make
-                    print_success "Zizzania installed at ~/zizzania"
-                    ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+                    print_success "AirSnare installed at ~/airesnare"
+                    AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
                 else
-                    print_error "No build system detected. Check the README in ~/zizzania"
+                    print_error "No build system detected. Check the README in ~/airesnare"
                     return 1
                 fi
             fi
             
-            # Configure sudo permissions for zizzania
-            if ask_continue "Configure sudo to allow passwordless execution of zizzania?"; then
-                print_message "Setting up sudo permissions for zizzania..."
+            # Configure sudo permissions for AirSnare
+            if ask_continue "Configure sudo to allow passwordless execution of AirSnare?"; then
+                print_message "Setting up sudo permissions for AirSnare..."
                 
                 # Determine current username
                 CURRENT_USER=$(whoami)
                 
-                # Verify zizzania path
-                if [ ! -x "$ZIZZANIA_PATH" ]; then
-                    print_warning "Zizzania not found at $ZIZZANIA_PATH, trying to locate it..."
-                    if [ -x "$HOME/zizzania/build/zizzania" ]; then
-                        ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
-                    elif [ -x "$HOME/zizzania/src/zizzania" ]; then
-                        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+                # Verify AirSnare path
+                if [ ! -x "$AIRSNARE_PATH" ]; then
+                    print_warning "AirSnare not found at $AIRSNARE_PATH, trying to locate it..."
+                    if [ -x "$HOME/airsnare/build/airsnare" ]; then
+                        AIRSNARE_PATH="$HOME/airsnare/build/airsnare"
+                    elif [ -x "$HOME/airsnare/src/airsnare" ]; then
+                        AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
                     else
-                        print_error "Cannot find zizzania executable"
+                        print_error "Cannot find AirSnare executable"
                         return 1
                     fi
                 fi
                 
-                print_message "Using zizzania path: $ZIZZANIA_PATH"
+                print_message "Using AirSnare path: $AIRSNARE_PATH"
                 
                 # Create a temporary sudoers file
                 SUDOERS_TMP=$(mktemp)
-                echo "$CURRENT_USER ALL=(ALL) NOPASSWD: $ZIZZANIA_PATH" > "$SUDOERS_TMP"
+                echo "$CURRENT_USER ALL=(ALL) NOPASSWD: $AIRSNARE_PATH" > "$SUDOERS_TMP"
                 
                 # Validate the syntax
                 visudo -cf "$SUDOERS_TMP"
@@ -244,14 +244,14 @@ install_zizzania() {
                 
                 # Add to sudoers.d directory
                 sudo mkdir -p /etc/sudoers.d
-                sudo cp "$SUDOERS_TMP" /etc/sudoers.d/zizzania
-                sudo chmod 0440 /etc/sudoers.d/zizzania
+                sudo cp "$SUDOERS_TMP" /etc/sudoers.d/airsnare
+                sudo chmod 0440 /etc/sudoers.d/airsnare
                 rm -f "$SUDOERS_TMP"
                 
-                print_success "Sudo permissions configured for $ZIZZANIA_PATH"
+                print_success "Sudo permissions configured for $AIRSNARE_PATH"
             fi
         else
-            print_error "Failed to install zizzania."
+            print_error "Failed to install AirSnare."
         fi
     fi
 }
@@ -399,16 +399,16 @@ detect_tool_paths() {
         print_warning "Hashcat not found in PATH, will use default: $HASHCAT_PATH"
     fi
     
-    # Find zizzania
-    if [ -x "$HOME/zizzania/build/zizzania" ]; then
-        ZIZZANIA_PATH="$HOME/zizzania/build/zizzania"
-        print_success "Found zizzania at: $ZIZZANIA_PATH"
-    elif [ -x "$HOME/zizzania/src/zizzania" ]; then
-        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
-        print_success "Found zizzania at: $ZIZZANIA_PATH"
+    # Find AirSnare
+    if [ -x "$HOME/airsnare/build/airsnare" ]; then
+        AIRSNARE_PATH="$HOME/airsnare/build/airsnare"
+        print_success "Found airsnare at: $AIRSNARE_PATH"
+    elif [ -x "$HOME/airsnare/src/airsnare" ]; then
+        AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
+        print_success "Found AirSnare at: $AIRSNARE_PATH"
     else
-        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
-        print_warning "Zizzania not found, will use default: $ZIZZANIA_PATH"
+        AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
+        print_warning "Zizzania not found, will use default: $AIRSNARE_PATH"
     fi
     
     # Update configuration with correct paths
@@ -419,11 +419,11 @@ detect_tool_paths() {
         
         # Read the file line by line
         while IFS= read -r line; do
-            # Check if the line contains hashcat_path or zizzania_path
+            # Check if the line contains hashcat_path or AirSnare_path
             if [[ $line == hashcat_path* ]]; then
                 echo "hashcat_path = $HASHCAT_PATH" >> "$temp_file"
-            elif [[ $line == zizzania_path* ]]; then
-                echo "zizzania_path = $ZIZZANIA_PATH" >> "$temp_file"
+            elif [[ $line == airsnare_path* ]]; then
+                echo "airsnare_path = $AIRSNARE_PATH" >> "$temp_file"
             else
                 echo "$line" >> "$temp_file"
             fi
@@ -470,9 +470,9 @@ uninstall() {
         print_success "Removed Python virtual environment"
     fi
     
-    if ask_continue "Remove zizzania?"; then
-        rm -rf "$HOME/zizzania"
-        print_success "Removed zizzania"
+    if ask_continue "Remove AirSnare?"; then
+        rm -rf "$HOME/airsnare"
+        print_success "Removed AirSnare"
     fi
     
     echo ""
@@ -500,7 +500,7 @@ show_usage() {
     echo "  homebrew    Install Homebrew"
     echo "  python      Install/update Python"
     echo "  tools       Install hashcat and hcxtools"
-    echo "  zizzania    Install zizzania"
+    echo "  airsnare    Install AirSnare"
     echo "  repo        Download AirJack repository"
     echo "  python_deps Install Python dependencies"
     echo "  config      Create configuration files"
@@ -562,9 +562,9 @@ main() {
                 setup_homebrew
                 install_tools
                 ;;
-            zizzania)
+            airsnare)
                 setup_homebrew
-                install_zizzania
+                install_airsnare
                 ;;
             repo)
                 clone_repo
@@ -587,7 +587,7 @@ main() {
                 setup_homebrew
                 install_python
                 install_tools
-                install_zizzania
+                install_airsnare
                 
                 # Download and install AirJack
                 clone_repo
@@ -610,7 +610,7 @@ main() {
         setup_homebrew
         install_python
         install_tools
-        install_zizzania
+        install_airsnare
         
         # Download and install AirJack
         clone_repo
