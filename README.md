@@ -25,7 +25,7 @@ This tool is provided for **EDUCATIONAL PURPOSES ONLY**. Only use AirJack on net
 ### External Dependencies
 These tools must be installed separately:
 - [hashcat](https://hashcat.net/hashcat/) - Password recovery utility
-- [AirSnare](https://github.com/rtulke/zizzania) - WPA handshake capture tool
+- [AirSnare](https://github.com/rtulke/airsnare) - WPA handshake capture tool
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
 
@@ -62,9 +62,9 @@ pip install -r requirements.txt
 # Install hashcat and hcxtools
 brew install hashcat hcxtools
 
-# Install zizzania
-git clone https://github.com/rtulke/zizzania.git ~/zizzania
-cd ~/zizzania
+# Install AirSnare
+git clone https://github.com/rtulke/airsnare.git
+cd airsnare
 make
 ```
 
@@ -171,7 +171,7 @@ cleanup = false
 
 [Paths]
 hashcat_path = /usr/local/bin/hashcat
-zizzania_path = /usr/local/bin/zizzania
+airsnare_path = /usr/local/bin/airsnare
 
 [Defaults]
 interface = en0
@@ -343,14 +343,14 @@ sudo /usr/bin/python3 airjack.py
 
 Make sure external tools are executable:
 ```bash
-chmod +x ~/zizzania/src/zizzania
+chmod +x /usr/local/bin/airsnare
 ```
 
 ---
 
 #### 6. Tool Not Found Errors
 
-**Problem:** "hashcat not found", "zizzania not found", or "hcxpcapngtool not found"
+**Problem:** "hashcat not found", "airsnare not found", or "hcxpcapngtool not found"
 
 **Solution:**
 Check tool paths and install if missing:
@@ -362,15 +362,15 @@ which hcxpcapngtool
 # Install via Homebrew
 brew install hashcat hcxtools
 
-# Build zizzania
-git clone https://github.com/cyrus-and/zizzania.git ~/zizzania
-cd ~/zizzania && make
+# Build AirSnare
+git clone https://github.com/rtulke/airsnare.git
+cd airsnare && make && make install
 ```
 
 Or specify custom paths:
 ```bash
 ./airjack --hashcat-path /custom/path/hashcat \
-          --zizzania-path /custom/path/zizzania
+          --airsnare-path /custom/path/airsnare
 ```
 
 ---
