@@ -1,6 +1,6 @@
 # AirJack
 
-A macOS Wi-Fi security testing tool for analyzing WPA/WPA2 network security.
+AirJack scans nearby Wi‑Fi networks on macOS using CoreWLAN, helps you pick a target, and orchestrates AirSnare plus hcxtools to capture WPA/WPA2/WPA3 handshakes. It then converts the capture to hashcat format and guides you through dictionary, brute‑force, or manual cracking workflows with optional cleanup for sensitive files.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
