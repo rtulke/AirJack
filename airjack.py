@@ -925,7 +925,7 @@ class WiFiCracker:
                 '-i', iface,
                 '-b', bssid,
                 '-w', self.capture_file,
-                '-v'  # Always use verbose to see deauth attempts
+                '-vvv'  # Always use verbose to see deauth attempts
             ]
 
             if not self.args.deauth:
