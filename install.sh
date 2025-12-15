@@ -146,6 +146,44 @@ install_tools() {
     fi
 }
 
+# Install zizzania (capture backend)
+install_zizzania() {
+    if ask_continue "Install zizzania (capture backend)?"; then
+        print_message "Installing zizzania dependencies (libpcap)..."
+        brew install libpcap wget || true
+
+        # Determine source directory (prefer existing repo clone if present)
+        SRC_DIR=""
+        if [ -d "$TEMP_DIR/zizzania/src" ]; then
+            SRC_DIR="$TEMP_DIR/zizzania"
+        elif [ -d "$HOME/zizzania/src" ]; then
+            SRC_DIR="$HOME/zizzania"
+        else
+            print_message "Cloning AirJack repo to build zizzania..."
+            git clone https://github.com/rtulke/AirJack.git "$TEMP_DIR/zizzania"
+            SRC_DIR="$TEMP_DIR/zizzania/zizzania"
+        fi
+
+        if [ ! -d "$SRC_DIR/src" ]; then
+            print_error "Could not find zizzania sources."
+            return 1
+        fi
+
+        print_message "Building zizzania..."
+        if [ -f "$SRC_DIR/config.Makefile" ]; then
+            make -C "$SRC_DIR" -f config.Makefile
+        fi
+        make -C "$SRC_DIR"
+
+        ZIZZANIA_PATH="$SRC_DIR/src/zizzania"
+        if [ -x "$ZIZZANIA_PATH" ]; then
+            print_success "zizzania built at $ZIZZANIA_PATH"
+        else
+            print_error "Failed to build zizzania."
+        fi
+    fi
+}
+
 # Install AirSnare
 install_airsnare() {
     if ask_continue "Install AirSnare - required for handshake capture?"; then
@@ -410,6 +448,27 @@ detect_tool_paths() {
         AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
         print_warning "AirSnare not found, will use default: $AIRSNARE_PATH"
     fi
+
+    # Find zizzania
+    if [ -x "$HOME/zizzania/src/zizzania" ]; then
+        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+        print_success "Found zizzania at: $ZIZZANIA_PATH"
+    elif [ -x "$TEMP_DIR/zizzania/src/zizzania" ]; then
+        ZIZZANIA_PATH="$TEMP_DIR/zizzania/src/zizzania"
+        print_success "Found zizzania at: $ZIZZANIA_PATH"
+    else
+        ZIZZANIA_PATH="$HOME/zizzania/src/zizzania"
+        print_warning "zizzania not found, will use default: $ZIZZANIA_PATH"
+    fi
+
+    # Decide capture tool preference
+    if [ -x "$ZIZZANIA_PATH" ]; then
+        CAPTURE_TOOL="zizzania"
+    elif [ -x "$AIRSNARE_PATH" ]; then
+        CAPTURE_TOOL="airsnare"
+    else
+        CAPTURE_TOOL="airsnare"
+    fi
     
     # Update configuration with correct paths
     if [ -f "$HOME/.airjack.conf" ]; then
@@ -424,6 +483,10 @@ detect_tool_paths() {
                 echo "hashcat_path = $HASHCAT_PATH" >> "$temp_file"
             elif [[ $line == airsnare_path* ]]; then
                 echo "airsnare_path = $AIRSNARE_PATH" >> "$temp_file"
+            elif [[ $line == zizzania_path* ]]; then
+                echo "zizzania_path = $ZIZZANIA_PATH" >> "$temp_file"
+            elif [[ $line == capture_tool* ]]; then
+                echo "capture_tool = $CAPTURE_TOOL" >> "$temp_file"
             else
                 echo "$line" >> "$temp_file"
             fi
@@ -501,6 +564,7 @@ show_usage() {
     echo "  python      Install/update Python"
     echo "  tools       Install hashcat and hcxtools"
     echo "  airsnare    Install AirSnare"
+    echo "  zizzania    Install zizzania (capture backend alternative)"
     echo "  repo        Download AirJack repository"
     echo "  python_deps Install Python dependencies"
     echo "  config      Create configuration files"
@@ -566,6 +630,10 @@ main() {
                 setup_homebrew
                 install_airsnare
                 ;;
+            zizzania)
+                setup_homebrew
+                install_zizzania
+                ;;
             repo)
                 clone_repo
                 ;;
@@ -591,6 +659,7 @@ main() {
                 
                 # Download and install AirJack
                 clone_repo
+                install_zizzania
                 install_python_deps
                 setup_config
                 install_manpage
@@ -614,6 +683,7 @@ main() {
         
         # Download and install AirJack
         clone_repo
+        install_zizzania
         install_python_deps
         setup_config
         install_manpage
