@@ -60,12 +60,20 @@ pip install -r requirements.txt
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install hashcat and hcxtools
-brew install hashcat hcxtools
+brew install hashcat hcxtools libpcap wget
 
-# Install AirSnare
+# Install Zizzania, https://github.com/cyrus-and/zizzania
+git clone https://github.com/cyrus-and/zizzania.git
+cd zizzania
+make -f config.Makefile
+make
+# make install
+# make uninstall
+
+# Or install AirSnare, a fork and rewritten version of Zizzania, instead.
 git clone https://github.com/rtulke/airsnare.git
 cd airsnare
-make
+make install
 ```
 
 5. Setup system wide
