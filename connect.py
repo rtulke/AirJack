@@ -204,7 +204,7 @@ def scan_networks(interface):
             if error:
                 print(f"[!] CoreWLAN scan error: {error}")
             elif networks and len(networks) > 0:
-                # Collect rows to size columns dynamically
+                # Collect rows and sort by strongest RSSI first
                 rows = []
                 for net in networks:
                     ssid = net.ssid() or "<hidden>"
@@ -213,10 +213,12 @@ def scan_networks(interface):
                     ch = net.wlanChannel().channelNumber() if net.wlanChannel() else "-"
                     rows.append((ssid, bssid, rssi, ch))
 
+                rows = sorted(rows, key=lambda r: r[2] if r[2] is not None else -999, reverse=True)
+
                 # Column widths (bounded)
                 id_w = max(2, len(str(len(rows))))
                 ssid_w = min(32, max(8, len("SSID"), max(len(r[0]) for r in rows)))
-                bssid_w = max(len("BSSID"), 17)
+                bssid_w = max(17, max(len("BSSID"), max(len(r[1]) for r in rows)))
                 rssi_w = max(len("RSSI"), 4)
                 ch_w = max(len("CH"), 3)
 
