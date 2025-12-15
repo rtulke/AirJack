@@ -11,7 +11,8 @@ airjack \- WiFi security testing tool for macOS
 .B airjack
 is a comprehensive WiFi security testing tool designed specifically for macOS systems.
 It leverages the CoreWLAN framework to scan for available wireless networks, capture
-WPA/WPA2/WPA3 handshakes using airsnare, and attempts to recover network passwords
+WPA/WPA2/WPA3 handshakes using a capture backend (zizzania preferred, AirSnare optional),
+and attempts to recover network passwords
 using hashcat with dictionary or brute-force attacks.
 
 .PP
@@ -52,6 +53,17 @@ file value (when set) or auto-detects via \fB$PATH\fR/Homebrew before falling ba
 Full path to the airsnare executable. If not provided, AirJack uses the configuration
 file value (when set) or auto-detects via \fB$PATH\fR/Homebrew before falling back to
 \fI~/airsnare/src/airsnare\fR.
+.TP
+.BI "\-\-zizzania\-path=" PATH
+Full path to the zizzania executable. If not provided, AirJack uses the configuration
+file value (when set) or auto-detects via \fB$PATH\fR/Homebrew before falling back to
+\fI~/zizzania/src/zizzania\fR.
+
+.SS Capture Backend
+.TP
+.BI "\-\-capture\-tool=" BACKEND
+Select capture backend: \fBzizzania\fR (preferred) or \fBairsnare\fR. Default: auto
+prefers zizzania when found, otherwise airsnare. Use this to force a specific tool.
 
 .SS Network Selection
 .TP
@@ -190,6 +202,8 @@ cleanup = false
 [Paths]
 hashcat_path = /usr/local/bin/hashcat
 airsnare_path = /usr/local/bin/airsnare
+zizzania_path = /usr/local/bin/zizzania
+capture_tool = zizzania
 
 [Defaults]
 interface = en0
