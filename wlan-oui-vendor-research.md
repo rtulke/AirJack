@@ -1,13 +1,13 @@
-# OUI/MAC Vendor Daten – Quellen & Integration für WLAN‑Scanner
-*Stand: 05.11.2025, 11:54 (Europe/Zurich)*
+# OUI/MAC Vendor Data – Sources & Integration for WLAN Scanners
+*As of: 05.11.2025, 11:54 (Europe/Zurich)*
 
-Dieser Leitfaden bündelt **offizielle IEEE‑Quellen**, **kuratierte/manuell gepflegte Datenbestände** (Wireshark, Nmap, arp‑scan, Aircrack‑NG), **APIs**, sowie **Bibliotheken** (Python, Go, Node) für die Integration von OUI/MAC‑Vendor‑Daten in WLAN‑Scanner‑Tools. Außerdem enthalten: Hinweise zu **Vendor‑Specific IEs** (WPA/RSN/WMM/WPS) und **MAC‑Randomisierung (U/L‑Bit)**.
+This guide aggregates **official IEEE sources**, **curated/manually maintained datasets** (Wireshark, Nmap, arp‑scan, Aircrack‑NG), **APIs**, and **libraries** (Python, Go, Node) for integrating OUI/MAC vendor data into WLAN scanner tools. Also included: notes on **Vendor‑Specific IEs** (WPA/RSN/WMM/WPS) and **MAC randomization (U/L bit)**.
 
 ---
 
-## 1) Offizielle IEEE‑Quellen (Registration Authority)
+## 1) Official IEEE Sources (Registration Authority)
 
-Die IEEE stellt die Datensätze maschinenlesbar bereit. Für vollständige Abdeckung solltest du **alle** folgenden CSVs periodisch spiegeln und zusammenführen:
+IEEE provides machine-readable datasets. For full coverage, mirror and merge **all** of the following CSVs regularly:
 
 - **MA‑L (OUI / 24‑Bit)** – CSV  
   https://standards-oui.ieee.org/oui/oui.csv
@@ -20,9 +20,9 @@ Die IEEE stellt die Datensätze maschinenlesbar bereit. Für vollständige Abdec
 - **Portalübersicht**  
   https://standards-oui.ieee.org/
 
-**Hinweis (U/L‑Bit & EUI‑Begriffe):**  
-- IEEE FAQ zur EUI/OUI/CID: https://standards.ieee.org/faqs/regauth/  
-- IEEE Tutorial (U/L‑Bit, I/G‑Bit): https://standards.ieee.org/wp-content/uploads/import/documents/tutorials/eui.pdf
+**Note (U/L bit & EUI terminology):**  
+- IEEE FAQ on EUI/OUI/CID: https://standards.ieee.org/faqs/regauth/  
+- IEEE tutorial (U/L bit, I/G bit): https://standards.ieee.org/wp-content/uploads/import/documents/tutorials/eui.pdf
 
 ---
 
@@ -30,14 +30,14 @@ Die IEEE stellt die Datensätze maschinenlesbar bereit. Für vollständige Abdec
 
 - **Wireshark „manuf“ (Herstellerauflösung)** – Beschreibung & Dump‑Hinweis  
   https://www.wireshark.org/docs/wsug_html_chunked/ChAppFilesConfigurationSection.html  
-  > Tipp: `tshark -G manuf` gibt den kompilierten Stand im `manuf`‑Format aus.
+  > Tip: `tshark -G manuf` prints the compiled state in `manuf` format.
 - **Wireshark OUI‑Lookup (Web)**  
   https://www.wireshark.org/tools/oui-lookup.html
 - **Wireshark News (manuf aus Build‑Verzeichnis)**  
   https://www.wireshark.org/news/20231025.html  
   (Download‑Pfad wird dort referenziert; üblich ist *download/automated/data/manuf*.)
 
-**Beispiel: `manuf` exportieren**
+**Example: export `manuf`**
 
 ```bash
 tshark -G manuf > manuf.txt
@@ -53,7 +53,7 @@ tshark -G manuf > manuf.txt
   https://nmap.org/book/nmap-mac-prefixes.html  
   https://nmap.org/book/data-files.html
 
-**Beispiel: Datei aktualisieren (Linux/Kali):**
+**Example: update file (Linux/Kali):**
 ```bash
 sudo curl -L -o /usr/share/nmap/nmap-mac-prefixes \
   https://svn.nmap.org/nmap/nmap-mac-prefixes
@@ -73,7 +73,7 @@ sudo curl -L -o /usr/share/nmap/nmap-mac-prefixes \
   https://bugs.debian.org/908623  
   https://bugs.launchpad.net/bugs/1796047
 
-**Beispiel: aktualisieren und für arp‑scan generieren**
+**Example: update and generate for arp‑scan**
 ```bash
 sudo update-ieee-data && sudo get-oui
 # erzeugt /usr/share/arp-scan/ieee-oui.txt
@@ -89,7 +89,7 @@ sudo update-ieee-data && sudo get-oui
   https://man.archlinux.org/man/airodump-ng-oui-update.8.en  
   (weitere Hinweise: https://www.kali.org/tools/aircrack-ng/)
 
-**Beispiel:**
+**Example:**
 ```bash
 sudo airodump-ng-oui-update
 # Aktualisiert die lokale OUI-Datenbasis für airodump-ng
@@ -97,9 +97,9 @@ sudo airodump-ng-oui-update
 
 ---
 
-## 6) APIs & Online‑Dienste (für Schnellabfragen/Enrichment)
+## 6) APIs & Online Services (for quick lookups/enrichment)
 
-> Für produktive Scanner bevorzuge **lokale, versionierte Spiegel** der IEEE‑CSVs. Online‑APIs eignen sich gut für Ad‑hoc‑Checks/Enrichment.
+> For production scanners prefer **local, versioned mirrors** of the IEEE CSVs. Online APIs are good for ad‑hoc checks/enrichment.
 
 - **macaddress.io** – API & Doku  
   https://macaddress.io/  
@@ -115,7 +115,7 @@ sudo airodump-ng-oui-update
 
 ---
 
-## 7) Programmbibliotheken
+## 7) Libraries
 
 ### Python
 - **`manuf` (Wireshark manuf‑Parser)**  
@@ -142,27 +142,27 @@ sudo airodump-ng-oui-update
 - **RSN IE (Element ID 48, OUI 00:0F:AC)**  
   Aruba TechDocs (AKM‑Suite‑Selector): https://arubanetworking.hpe.com/techdocs/aos/wifi-design-deploy/security/modes/
 
-Diese Infos sind relevant, wenn dein Scanner **IEs in Beacons/Probe Responses** passiv auswertet und Hersteller/Features aus **Vendor‑OUIs** ableiten soll.
+This is relevant when your scanner passively parses **IEs in Beacons/Probe Responses** and needs to derive vendor/features from **vendor OUIs**.
 
 ---
 
-## 9) MAC‑Randomisierung & U/L‑Bit
+## 9) MAC Randomization & U/L Bit
 
 - **Wikipedia – MAC Address (U/L‑Bit Erklärung)**  
   https://en.wikipedia.org/wiki/MAC_address
 - **IEEE Tutorial (I/G & U/L Bits)**  
   https://standards.ieee.org/wp-content/uploads/import/documents/tutorials/eui.pdf
 
-**Kurzmerkregel für lokal vergebene MACs (LAA):**  
-Das **U/L‑Bit = 1** (zweites LSB des ersten Oktetts). Hex‑Zweitziffer ∈ {{2, 6, A, E}}.
+**Quick rule for locally administered MACs (LAA):**  
+The **U/L bit = 1** (second LSB of the first octet). Hex second nibble ∈ {{2, 6, A, E}}.
 
 ---
 
-## 10) Parsing‑Tipps & Pipeline
+## 10) Parsing Tips & Pipeline
 
-- **Datenquellen zusammenführen:** `oui.csv` (24b), `mam.csv` (28b), `oui36.csv` (36b), `iab.csv` (36b) in **ein Format** normalisieren (z. B. JSON) und per **Präfix‑Trie** oder **Longest‑Prefix‑Match** auflösen.
-- **Differenzen beachten:** Wireshark *manuf* und Nmap *nmap‑mac‑prefixes* sind **kuratierte** Ableitungen. Bei Konflikten gilt **IEEE** als Quelle der Wahrheit.
-- **Reproduzierbarkeit:** Versioniere Snapshot‑Stände (Zeitstempel, SHA256) und dokumentiere Update‑Intervall (z. B. täglich/wöchentlich).
+- **Merge data sources:** normalize `oui.csv` (24b), `mam.csv` (28b), `oui36.csv` (36b), `iab.csv` (36b) into **one format** (e.g., JSON) and resolve via **prefix trie** or **longest-prefix match**.
+- **Mind differences:** Wireshark *manuf* and Nmap *nmap‑mac‑prefixes* are **curated** derivatives. On conflicts, treat **IEEE** as source of truth.
+- **Reproducibility:** version snapshots (timestamp, SHA256) and document update interval (e.g., daily/weekly).
 
 **Mini‑Beispiel (Shell):**
 ```bash
@@ -176,14 +176,14 @@ curl -O https://standards-oui.ieee.org/iab/iab.csv
 # (Webtool-Link hier nur als Referenz; für maschinelle Nutzung nutze manuf Dump oder CSVs)
 curl -L -o nmap-mac-prefixes https://svn.nmap.org/nmap/nmap-mac-prefixes
 
-# 3) Eigenes JSON bauen (z. B. mit Python) und im Tool verwenden
+# 3) Build your own JSON (e.g., with Python) and use it in the tool
 ```
 
 ---
 
-## 11) Alle verwendeten Links (kompakt)
+## 11) All referenced links (compact)
 
-**IEEE / Grundlagen**
+**IEEE / basics**
 - https://standards-oui.ieee.org/  
 - https://standards-oui.ieee.org/oui/oui.csv  
 - https://standards-oui.ieee.org/oui28/mam.csv  
@@ -216,7 +216,7 @@ curl -L -o nmap-mac-prefixes https://svn.nmap.org/nmap/nmap-mac-prefixes
 - https://man.archlinux.org/man/airodump-ng-oui-update.8.en  
 - https://www.kali.org/tools/aircrack-ng/
 
-**APIs / Dienste**
+**APIs / Services**
 - https://macaddress.io/  
 - https://macaddress.io/api  
 - https://macaddress.io/api/documentation  
@@ -226,7 +226,7 @@ curl -L -o nmap-mac-prefixes https://svn.nmap.org/nmap/nmap-mac-prefixes
 - https://macvendors.co/  
 - https://macvendors.co/api
 
-**Bibliotheken**
+**Libraries**
 - https://github.com/coolbho3k/manuf  
 - https://pkg.go.dev/github.com/endobit/oui  
 - https://github.com/klauspost/oui  
@@ -240,4 +240,4 @@ curl -L -o nmap-mac-prefixes https://svn.nmap.org/nmap/nmap-mac-prefixes
 
 ---
 
-**Lizenz/Compliance‑Hinweis:** Prüfe die Nutzungsbedingungen der jeweiligen Datenquellen/Tools (v. a. IEEE‑Daten, API‑TOS). Für produktive Distribution empfiehlt sich das **lokale Spiegeln** der IEEE‑CSVs inkl. Quell‑/Versions‑Dokumentation.
+**License/Compliance note:** Check usage terms of each data source/tool (especially IEEE data, API TOS). For production distribution, prefer **local mirrors** of the IEEE CSVs incl. source/version documentation.
