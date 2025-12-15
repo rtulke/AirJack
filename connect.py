@@ -23,6 +23,13 @@ import argparse
 import getpass
 from pathlib import Path
 
+COREWLAN_AVAILABLE = False
+try:
+    import CoreWLAN
+    COREWLAN_AVAILABLE = True
+except Exception:
+    COREWLAN_AVAILABLE = False
+
 # Constants
 AIRPORT_PATH = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
 WDUTIL_PATH = "/usr/bin/wdutil"
@@ -181,45 +188,75 @@ def is_network_in_range(interface, ssid):
 
 
 def scan_networks(interface):
-    """Scan for available networks"""
+    """Scan for available networks.
+
+    Prefers CoreWLAN (no deprecated airport usage). Falls back to airport if CoreWLAN
+    is unavailable, and finally suggests WiFi Diagnostics.
+    """
     print("[*] Scanning for networks...")
-    
-    # Use airport for scanning (deprecated but no alternative for scanning)
+
+    # Preferred: CoreWLAN (no deprecation warnings)
+    if COREWLAN_AVAILABLE:
+        try:
+            client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
+            cw_iface = client.interface()
+            networks, error = cw_iface.scanForNetworksWithName_error_(None, None)
+            if error:
+                print(f"[!] CoreWLAN scan error: {error}")
+            elif networks and len(networks) > 0:
+                print("[+] Available networks (CoreWLAN):")
+                print("    SSID                         BSSID               RSSI   CH")
+                print("    " + "-" * 70)
+                count = 0
+                for net in networks:
+                    ssid = net.ssid() or "<hidden>"
+                    bssid = net.bssid() or "-"
+                    rssi = net.rssiValue()
+                    ch = net.wlanChannel().channelNumber() if net.wlanChannel() else "-"
+                    print(f"    {ssid:<28} {bssid:<17} {rssi:>4}  {ch}")
+                    count += 1
+                    if count >= 30:
+                        print("    ... (truncated)")
+                        break
+                return "corewlan"
+        except Exception as e:
+            print(f"[!] CoreWLAN scan failed: {e}")
+
+    # Fallback: airport (deprecated, may stop working)
     if Path(AIRPORT_PATH).exists():
-        # Redirect stderr to suppress deprecation warning
+        print("[*] CoreWLAN unavailable or failed, falling back to airport (deprecated)...")
         stdout, stderr, code = run_command(f"{AIRPORT_PATH} -s 2>/dev/null", check=False)
-        
+
         if code == 0 and stdout:
             lines = stdout.strip().split('\n')
-            
+
             if len(lines) > 0:
-                print("[+] Available networks:")
-                
-                # Show all networks with proper formatting
+                print("[+] Available networks (airport):")
+
                 for i, line in enumerate(lines[:20]):  # Show first 20 networks
                     if i == 0:
-                        # Header
                         print(f"    {line}")
                         print("    " + "-" * 80)
                     else:
                         if line.strip():
                             print(f"    {line}")
-                
+
                 if len(lines) > 20:
                     print(f"\n    ... and {len(lines) - 20} more networks")
-                
-                return stdout
+
+                return "airport"
             else:
                 print("[!] No networks found")
                 return None
         else:
-            print(f"[!] Scan failed")
+            print("[!] Scan failed (airport).")
     else:
         print(f"[!] Airport utility not found at {AIRPORT_PATH}")
-    
-    # Fallback: open WiFi Diagnostics
-    print("[*] Opening WiFi Diagnostics app...")
+
+    # Final hint: WiFi Diagnostics
+    print("[*] Opening WiFi Diagnostics app (manual scan)...")
     run_command("open '/System/Library/CoreServices/WiFi Diagnostics.app'", check=False)
+    print("[*] Note: wdutil has no scan; use WiFi Diagnostics for a GUI scan.")
     return None
 
 
