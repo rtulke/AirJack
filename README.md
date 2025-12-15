@@ -76,7 +76,7 @@ cd airsnare
 make install
 ```
 
-5. Setup system wide
+4. Setup system wide
 ```bash
 # Copy AirJack script to `/usr/local/bin/airjack`
 sudo cp airjack.py /usr/local/bin/airjack
