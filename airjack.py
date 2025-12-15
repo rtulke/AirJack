@@ -133,6 +133,11 @@ def find_tool_path(tool_name: str, manual_locations: List[str] = None) -> Option
             join(expanduser('~'), 'airsnare', 'airsnare'),
             '/usr/local/bin/airsnare',
         ])
+    elif tool_name == 'zizzania':
+        manual_paths.extend([
+            join(expanduser('~'), 'zizzania', 'src', 'zizzania'),
+            '/usr/local/bin/zizzania',
+        ])
     elif tool_name == 'hcxpcapngtool':
         manual_paths.extend([
             '/usr/local/bin/hcxpcapngtool',
@@ -170,8 +175,11 @@ def get_default_tool_paths() -> Dict[str, str]:
     hashcat_path = find_tool_path('hashcat')
     paths['hashcat_path'] = hashcat_path or join(expanduser('~'), 'hashcat', 'hashcat')
 
-    # Detect airsnare
+    # Detect capture backends
+    zizzania_path = find_tool_path('zizzania')
     airsnare_path = find_tool_path('airsnare')
+
+    paths['zizzania_path'] = zizzania_path or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
     paths['airsnare_path'] = airsnare_path or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
 
     return paths
@@ -213,6 +221,8 @@ class ConfigManager:
         self.config["Paths"] = {
             "hashcat_path": detected_paths['hashcat_path'],
             "airsnare_path": detected_paths['airsnare_path'],
+            "zizzania_path": detected_paths['zizzania_path'],
+            "capture_tool": "zizzania" if find_tool_path('zizzania') else "airsnare",
         }
         
         self.config["Defaults"] = {
@@ -345,6 +355,12 @@ class WiFiCracker:
                 
             if not hasattr(self.args, 'airsnare_path') or self.args.airsnare_path is None:
                 self.args.airsnare_path = self.config.get('airsnare_path', None)
+
+            if not hasattr(self.args, 'zizzania_path') or self.args.zizzania_path is None:
+                self.args.zizzania_path = self.config.get('zizzania_path', None)
+
+            if not hasattr(self.args, 'capture_tool') or self.args.capture_tool is None:
+                self.args.capture_tool = self.config.get('capture_tool', None)
                 
             if not hasattr(self.args, 'interface') or self.args.interface is None:
                 self.args.interface = self.config.get('interface', None)
@@ -380,6 +396,12 @@ class WiFiCracker:
         # 3. Smart detection (Homebrew-first, then manual builds)
         # 4. Hardcoded fallback defaults
 
+        # Capture backend selection: prefer explicit choice, otherwise auto
+        if getattr(self.args, 'capture_tool', None):
+            preferred_capture = self.args.capture_tool.lower()
+        else:
+            preferred_capture = 'zizzania' if find_tool_path('zizzania') else 'airsnare'
+
         if self.args.hashcat_path:
             self.hashcat_path = self.args.hashcat_path
         else:
@@ -387,12 +409,23 @@ class WiFiCracker:
             detected = find_tool_path('hashcat')
             self.hashcat_path = detected or join(expanduser('~'), 'hashcat', 'hashcat')
 
-        if self.args.airsnare_path:
-            self.airsnare_path = self.args.airsnare_path
+        # Capture tool path resolution
+        if preferred_capture == 'zizzania':
+            if getattr(self.args, 'zizzania_path', None):
+                self.airsnare_path = self.args.zizzania_path
+            else:
+                detected = find_tool_path('zizzania')
+                self.airsnare_path = detected or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
         else:
-            # Try smart detection
-            detected = find_tool_path('airsnare')
-            self.airsnare_path = detected or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
+            if self.args.airsnare_path:
+                self.airsnare_path = self.args.airsnare_path
+            else:
+                # Try smart detection
+                detected = find_tool_path('airsnare')
+                self.airsnare_path = detected or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
+
+        # Remember which backend we actually intend to use
+        self.capture_tool = 'zizzania' if 'zizzania' in self.airsnare_path else preferred_capture
 
         # Validate tool paths if not in dry_run mode
         if not self.args.dry_run:
@@ -406,9 +439,13 @@ class WiFiCracker:
                     self.log.info(f"Use --hashcat-path {homebrew_hashcat} or add to config file")
 
             if not exists(self.airsnare_path):
-                missing_tools.append(f"airsnare: {self.airsnare_path}")
-                # Provide helpful hint
+                missing_tools.append(f"{self.capture_tool}: {self.airsnare_path}")
+                # Provide helpful hints for both backends
                 found_airsnare = find_tool_path('airsnare')
+                found_zizzania = find_tool_path('zizzania')
+                if found_zizzania:
+                    self.log.info(f"Hint: Found zizzania at {found_zizzania}")
+                    self.log.info(f"Use --zizzania-path {found_zizzania} or add to config file")
                 if found_airsnare:
                     self.log.info(f"Hint: Found airsnare at {found_airsnare}")
                     self.log.info(f"Use --airsnare-path {found_airsnare} or add to config file")
@@ -421,12 +458,12 @@ class WiFiCracker:
                 self.log.error("Solutions:")
                 self.log.error("1. Install via Homebrew: brew install hashcat hcxtools")
                 self.log.error("2. Build manually and create config: airjack.py -C ~/.airjack.conf")
-                self.log.error("3. Specify paths: --hashcat-path /path/to/hashcat --airsnare-path /path/to/airsnare")
+                self.log.error("3. Specify paths: --hashcat-path /path/to/hashcat --airsnare-path /path/to/airsnare or --zizzania-path /path/to/zizzania")
                 if not self.args.ignore_missing:
                     sys.exit(1)
 
         self.log.debug(f"Using hashcat: {self.hashcat_path}")
-        self.log.debug(f"Using airsnare: {self.airsnare_path}")
+        self.log.debug(f"Using capture backend ({self.capture_tool}): {self.airsnare_path}")
     
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
@@ -920,16 +957,40 @@ class WiFiCracker:
             print("="*70 + "\n")
 
             # Build the command with verbose output
-            cmd = [
-                'sudo', self.airsnare_path,
-                '-i', iface,
-                '-b', bssid,
-                '-w', self.capture_file,
-                '-v'  # Always use verbose to see deauth attempts
-            ]
+            channel_number = None
+            try:
+                if hasattr(channel, 'channelNumber'):
+                    cn_attr = channel.channelNumber
+                    channel_number = cn_attr() if callable(cn_attr) else cn_attr
+                elif isinstance(channel, int):
+                    channel_number = channel
+            except Exception:
+                channel_number = None
 
-            if not self.args.deauth:
-                cmd.append('-n')
+            if self.capture_tool == 'zizzania':
+                cmd = [
+                    'sudo', self.airsnare_path,
+                    '-i', iface,
+                    '-b', bssid,
+                    '-w', self.capture_file,
+                ]
+                if channel_number:
+                    cmd.extend(['-c', str(channel_number)])
+                if not self.args.deauth:
+                    cmd.append('-n')  # passive mode -> no deauth
+                if self.args.verbose:
+                    cmd.append('-v')
+            else:
+                cmd = [
+                    'sudo', self.airsnare_path,
+                    '-i', iface,
+                    '-b', bssid,
+                    '-w', self.capture_file,
+                    '-v'  # Always use verbose to see deauth attempts
+                ]
+
+                if not self.args.deauth:
+                    cmd.append('-n')
 
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
@@ -1306,6 +1367,10 @@ def setup_argparse() -> argparse.ArgumentParser:
                       help='Path to hashcat executable (default: from config or ~/hashcat/hashcat)')
     parser.add_argument('--airsnare-path', default=None,
                       help='Path to airsnare executable (default: from config or ~/airsnare/src/airsnare)')
+    parser.add_argument('--zizzania-path', default=None,
+                      help='Path to zizzania executable (default: from config or ~/zizzania/src/zizzania)')
+    parser.add_argument('--capture-tool', choices=['airsnare', 'zizzania'], default=None,
+                      help='Capture backend to use (default: auto; prefers zizzania if present)')
     
     # Network selection
     parser.add_argument('-i', '--interface', default=None,
