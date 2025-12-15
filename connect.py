@@ -22,6 +22,7 @@ import time
 import argparse
 import getpass
 from pathlib import Path
+import re
 
 COREWLAN_AVAILABLE = False
 try:
@@ -208,17 +209,15 @@ def scan_networks(interface):
                 rows = []
                 for net in networks:
                     ssid = net.ssid() or "<hidden>"
-                    bssid = net.bssid() or "-"
                     rssi = net.rssiValue()
                     ch = net.wlanChannel().channelNumber() if net.wlanChannel() else "-"
-                    rows.append((ssid, bssid, rssi, ch))
+                    rows.append((ssid, rssi, ch))
 
-                rows = sorted(rows, key=lambda r: r[2] if r[2] is not None else -999, reverse=True)
+                rows = sorted(rows, key=lambda r: r[1] if r[1] is not None else -999, reverse=True)
 
                 # Column widths (bounded)
                 id_w = max(2, len(str(len(rows))))
                 ssid_w = min(32, max(8, len("SSID"), max(len(r[0]) for r in rows)))
-                bssid_w = max(17, max(len("BSSID"), max(len(r[1]) for r in rows)))
                 rssi_w = max(len("RSSI"), 4)
                 ch_w = max(len("CH"), 3)
 
@@ -226,18 +225,16 @@ def scan_networks(interface):
                 header = (
                     f"    {'ID':<{id_w}} "
                     f"{'SSID':<{ssid_w}} "
-                    f"{'BSSID':<{bssid_w}} "
                     f"{'RSSI':>{rssi_w}}  "
                     f"{'CH':<{ch_w}}"
                 )
                 print(header)
                 print("    " + "-" * (len(header) - 4))
 
-                for idx, (ssid, bssid, rssi, ch) in enumerate(rows, start=1):
+                for idx, (ssid, rssi, ch) in enumerate(rows, start=1):
                     print(
                         f"    {idx:<{id_w}} "
                         f"{ssid:<{ssid_w}} "
-                        f"{bssid:<{bssid_w}} "
                         f"{rssi:>{rssi_w}}  "
                         f"{ch:<{ch_w}}"
                     )
