@@ -211,13 +211,13 @@ def scan_networks(interface):
                     ssid = net.ssid() or "<hidden>"
                     rssi = net.rssiValue()
                     ch = net.wlanChannel().channelNumber() if net.wlanChannel() else "-"
-                    rows.append((ssid, rssi, ch))
+                    rows.append({"ssid": ssid, "rssi": rssi, "ch": ch})
 
-                rows = sorted(rows, key=lambda r: r[1] if r[1] is not None else -999, reverse=True)
+                rows = sorted(rows, key=lambda r: r["rssi"] if r["rssi"] is not None else -999, reverse=True)
 
                 # Column widths (bounded)
                 id_w = max(2, len(str(len(rows))))
-                ssid_w = min(32, max(8, len("SSID"), max(len(r[0]) for r in rows)))
+                ssid_w = min(32, max(8, len("SSID"), max(len(r["ssid"]) for r in rows)))
                 rssi_w = max(len("RSSI"), 4)
                 ch_w = max(len("CH"), 3)
 
@@ -231,17 +231,17 @@ def scan_networks(interface):
                 print(header)
                 print("    " + "-" * (len(header) - 4))
 
-                for idx, (ssid, rssi, ch) in enumerate(rows, start=1):
+                for idx, row in enumerate(rows, start=1):
                     print(
                         f"    {idx:<{id_w}} "
-                        f"{ssid:<{ssid_w}} "
-                        f"{rssi:>{rssi_w}}  "
-                        f"{ch:<{ch_w}}"
+                        f"{row['ssid']:<{ssid_w}} "
+                        f"{row['rssi']:>{rssi_w}}  "
+                        f"{row['ch']:<{ch_w}}"
                     )
                     if idx >= 50:
                         print("    ... (truncated)")
                         break
-                return "corewlan"
+                return rows
         except Exception as e:
             print(f"[!] CoreWLAN scan failed: {e}")
 
@@ -255,19 +255,31 @@ def scan_networks(interface):
 
             if len(lines) > 0:
                 print("[+] Available networks (airport):")
-
-                for i, line in enumerate(lines[:20]):  # Show first 20 networks
+                header_seen = False
+                rows = []
+                for i, line in enumerate(lines):
                     if i == 0:
+                        header_seen = True
                         print(f"    {line}")
                         print("    " + "-" * 80)
-                    else:
-                        if line.strip():
-                            print(f"    {line}")
-
+                        continue
+                    if not line.strip():
+                        continue
+                    print(f"    {line}" if i <= 20 else "", end="")
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        # Approximate: SSID is first token if no spaces; RSSI and channel near the end
+                        ssid = parts[0]
+                        try:
+                            rssi_val = int(parts[-5])
+                            ch_val = parts[-4]
+                        except Exception:
+                            rssi_val = None
+                            ch_val = ""
+                        rows.append({"ssid": ssid, "rssi": rssi_val, "ch": ch_val})
                 if len(lines) > 20:
                     print(f"\n    ... and {len(lines) - 20} more networks")
-
-                return "airport"
+                return rows if rows else None
             else:
                 print("[!] No networks found")
                 return None
@@ -281,6 +293,16 @@ def scan_networks(interface):
     run_command("open '/System/Library/CoreServices/WiFi Diagnostics.app'", check=False)
     print("[*] Note: wdutil has no scan; use WiFi Diagnostics for a GUI scan.")
     return None
+
+
+def connect_with_saved_or_prompt(interface, ssid):
+    """Try to connect using saved credentials; if that fails, prompt for password."""
+    print(f"[*] Attempting connection to: {ssid}")
+    if connect_to_network(interface, ssid=ssid, password=None):
+        return True
+    print("[!] Connection without password failed. Prompting for password...")
+    password = getpass.getpass(f"[*] Enter password for '{ssid}': ")
+    return connect_to_network(interface, ssid=ssid, password=password)
 
 
 def connect_to_network(interface, ssid=None, password=None):
@@ -412,8 +434,25 @@ def main():
     # Handle scan-only mode
     if args.scan:
         print("\n[*] Scanning for available networks...")
-        scan_networks(interface)
-        return
+        scan_rows = scan_networks(interface)
+        if not scan_rows:
+            return
+        # Prompt for selection
+        try:
+            choice = input("\nSelect network ID to connect (q to quit): ").strip().lower()
+            if choice in ("q", "quit", ""):
+                print("[*] Scan finished (no connection selected).")
+                return
+            idx = int(choice)
+            if idx < 1 or idx > len(scan_rows):
+                print("[!] Invalid selection.")
+                return
+            target = scan_rows[idx - 1]
+            connect_with_saved_or_prompt(interface, target["ssid"])
+            return
+        except (ValueError, EOFError, KeyboardInterrupt):
+            print("\n[!] Cancelled.")
+            return
     
     # Check current status
     print("\n[*] Checking current status...")
