@@ -204,18 +204,42 @@ def scan_networks(interface):
             if error:
                 print(f"[!] CoreWLAN scan error: {error}")
             elif networks and len(networks) > 0:
-                print("[+] Available networks (CoreWLAN):")
-                print("    SSID                         BSSID               RSSI   CH")
-                print("    " + "-" * 70)
-                count = 0
+                # Collect rows to size columns dynamically
+                rows = []
                 for net in networks:
                     ssid = net.ssid() or "<hidden>"
                     bssid = net.bssid() or "-"
                     rssi = net.rssiValue()
                     ch = net.wlanChannel().channelNumber() if net.wlanChannel() else "-"
-                    print(f"    {ssid:<28} {bssid:<17} {rssi:>4}  {ch}")
-                    count += 1
-                    if count >= 30:
+                    rows.append((ssid, bssid, rssi, ch))
+
+                # Column widths (bounded)
+                id_w = max(2, len(str(len(rows))))
+                ssid_w = min(32, max(8, len("SSID"), max(len(r[0]) for r in rows)))
+                bssid_w = max(len("BSSID"), 17)
+                rssi_w = max(len("RSSI"), 4)
+                ch_w = max(len("CH"), 3)
+
+                print("[+] Available networks (CoreWLAN):")
+                header = (
+                    f"    {'ID':<{id_w}} "
+                    f"{'SSID':<{ssid_w}} "
+                    f"{'BSSID':<{bssid_w}} "
+                    f"{'RSSI':>{rssi_w}}  "
+                    f"{'CH':<{ch_w}}"
+                )
+                print(header)
+                print("    " + "-" * (len(header) - 4))
+
+                for idx, (ssid, bssid, rssi, ch) in enumerate(rows, start=1):
+                    print(
+                        f"    {idx:<{id_w}} "
+                        f"{ssid:<{ssid_w}} "
+                        f"{bssid:<{bssid_w}} "
+                        f"{rssi:>{rssi_w}}  "
+                        f"{ch:<{ch_w}}"
+                    )
+                    if idx >= 50:
                         print("    ... (truncated)")
                         break
                 return "corewlan"
