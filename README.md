@@ -25,7 +25,7 @@ This tool is provided for **EDUCATIONAL PURPOSES ONLY**. Only use AirJack on net
 ### External Dependencies
 These tools must be installed separately:
 - [hashcat](https://hashcat.net/hashcat/) - Password recovery utility
-- [zizzania](https://github.com/rtulke/AirJack/tree/main/zizzania) **or** [AirSnare](https://github.com/rtulke/airsnare) - WPA handshake capture tool
+- [zizzania](https://github.com/cyrus-and/zizzania) **or** [AirSnare](https://github.com/rtulke/airsnare) - WPA handshake capture tool
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
 
