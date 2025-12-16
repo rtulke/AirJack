@@ -406,7 +406,7 @@ If your Wi-Fi interface gets stuck in monitor mode or you cannot reconnect to yo
 - Tries stored credentials first; prompts for password if needed.
 - Can disable monitor mode and re-enable Wi-Fi power.
 
-See `README_connect.md` for details and usage examples.
+See [`README_connect.md`](https://github.com/rtulke/AirJack/blob/main/README_connect.md) for details and usage examples.
 
 ## License
 
