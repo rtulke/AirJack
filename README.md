@@ -399,6 +399,15 @@ If you encounter issues not covered here:
    - Complete error message
    - Steps to reproduce
 
+### Troubleshooting: Stuck in Monitor Mode (macOS)
+
+If your Wi-Fi interface gets stuck in monitor mode or you cannot reconnect to your normal network on macOS, use the helper script `connect.py`:
+- Scans available networks and lets you select one by ID to reconnect.
+- Tries stored credentials first; prompts for password if needed.
+- Can disable monitor mode and re-enable Wi-Fi power.
+
+See `README_connect.md` for details and usage examples.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
