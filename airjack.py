@@ -460,11 +460,26 @@ class WiFiCracker:
         # 3. Smart detection (Homebrew-first, then manual builds)
         # 4. Hardcoded fallback defaults
 
-        # Capture backend selection: prefer explicit choice, otherwise auto
-        if getattr(self.args, 'capture_tool', None):
-            preferred_capture = self.args.capture_tool.lower()
+        # Capture backend selection: prefer explicit choice, otherwise auto preferring zizzania
+        preferred_capture = (self.args.capture_tool.lower()
+                             if getattr(self.args, 'capture_tool', None)
+                             else None)
+
+        # Paths
+        z_path = self.args.zizzania_path or find_tool_path('zizzania') or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
+        a_path = self.args.airsnare_path or find_tool_path('airsnare') or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
+
+        # Decide capture tool
+        if preferred_capture:
+            self.capture_tool = preferred_capture
         else:
-            preferred_capture = 'zizzania' if find_tool_path('zizzania') else 'airsnare'
+            self.capture_tool = 'zizzania' if z_path and exists(z_path) else 'airsnare'
+
+        # Assign capture path
+        if self.capture_tool == 'zizzania':
+            self.capture_path = z_path
+        else:
+            self.capture_path = a_path
 
         if self.args.hashcat_path:
             self.hashcat_path = self.args.hashcat_path
@@ -472,24 +487,6 @@ class WiFiCracker:
             # Try smart detection
             detected = find_tool_path('hashcat')
             self.hashcat_path = detected or join(expanduser('~'), 'hashcat', 'hashcat')
-
-        # Capture tool path resolution
-        if preferred_capture == 'zizzania':
-            if getattr(self.args, 'zizzania_path', None):
-                self.airsnare_path = self.args.zizzania_path
-            else:
-                detected = find_tool_path('zizzania')
-                self.airsnare_path = detected or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
-        else:
-            if self.args.airsnare_path:
-                self.airsnare_path = self.args.airsnare_path
-            else:
-                # Try smart detection
-                detected = find_tool_path('airsnare')
-                self.airsnare_path = detected or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
-
-        # Remember which backend we actually intend to use
-        self.capture_tool = 'zizzania' if 'zizzania' in self.airsnare_path else preferred_capture
 
         # Validate tool paths if not in dry_run mode
         if not self.args.dry_run:
@@ -502,8 +499,8 @@ class WiFiCracker:
                     self.log.info(f"Hint: Found hashcat at {homebrew_hashcat}")
                     self.log.info(f"Use --hashcat-path {homebrew_hashcat} or add to config file")
 
-            if not exists(self.airsnare_path):
-                missing_tools.append(f"{self.capture_tool}: {self.airsnare_path}")
+            if not exists(self.capture_path):
+                missing_tools.append(f"{self.capture_tool}: {self.capture_path}")
                 # Provide helpful hints for both backends
                 found_airsnare = find_tool_path('airsnare')
                 found_zizzania = find_tool_path('zizzania')
@@ -527,7 +524,7 @@ class WiFiCracker:
                     sys.exit(1)
 
         self.log.debug(f"Using hashcat: {self.hashcat_path}")
-        self.log.debug(f"Using capture backend ({self.capture_tool}): {self.airsnare_path}")
+        self.log.debug(f"Using capture backend ({self.capture_tool}): {self.capture_path}")
 
     def resolve_interface(self) -> Optional[str]:
         """Determine which Wi-Fi interface to use (with interactive fallback)."""
@@ -1090,7 +1087,7 @@ class WiFiCracker:
 
             if self.capture_tool == 'zizzania':
                 cmd = [
-                    'sudo', self.airsnare_path,
+                    'sudo', self.capture_path,
                     '-i', iface,
                     '-b', bssid,
                     '-w', self.capture_file,
@@ -1103,7 +1100,7 @@ class WiFiCracker:
                     cmd.append('-v')
             else:
                 cmd = [
-                    'sudo', self.airsnare_path,
+                    'sudo', self.capture_path,
                     '-i', iface,
                     '-b', bssid,
                     '-w', self.capture_file,
