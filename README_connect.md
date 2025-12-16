@@ -9,8 +9,9 @@ Recovery tool for macOS WiFi interfaces stuck in monitor mode. Automatically det
 - Detects and exits monitor mode
 - Multi-method connection verification (ifconfig + wdutil)
 - Custom SSID/password support via CLI
+- Interactive scan & connect: scan networks, pick by ID, uses saved Keychain creds first, prompts for password if needed
 - Secure password input (getpass)
-- Network scanning
+- Network scanning (CoreWLAN preferred, airport as fallback)
 - Error detection with actionable fixes
 
 ## Requirements
@@ -40,6 +41,8 @@ sudo ./connect.py -s "MyNetwork" -p "MyPassword123"
 ### Scan for available networks
 ```bash
 sudo ./connect.py --scan
+# Shows ID, SSID, RSSI, channel (no BSSID), sorted by strongest signal.
+# Enter the ID to connect; uses saved credentials first, otherwise asks for a password.
 ```
 
 ### Help
@@ -80,7 +83,8 @@ sudo ./connect.py --scan
 
 ### Tools Used
 - `wdutil` - Modern WiFi diagnostics (info, diagnose)
-- `airport` - Network scanning (deprecated but no alternative exists)
+- CoreWLAN (preferred scan on macOS, no deprecation warnings)
+- `airport` - Fallback scan (deprecated)
 - `networksetup` - Network configuration
 - `ifconfig` - Interface configuration
 
@@ -92,6 +96,7 @@ sudo ./connect.py --scan
 
 **Connection fails repeatedly:**
 - Check if network is in range: `sudo ./connect.py --scan`
+- If scan shows no BSSID/SSID on macOS, ensure Location Services for your terminal are enabled
 - Remove saved credentials: `sudo security delete-generic-password -l "SSID"`
 - Try manual connection with password
 
