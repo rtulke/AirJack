@@ -20,6 +20,8 @@ from os.path import expanduser, join, exists, dirname, abspath
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
 
+BASE_DIR = dirname(abspath(__file__))
+
 try:
     import CoreWLAN
     import CoreLocation
@@ -28,8 +30,6 @@ try:
 except ImportError as e:
     print(f"Error: Missing required dependency: {e}")
     print("\n=== Troubleshooting Guide ===")
-
-BASE_DIR = dirname(abspath(__file__))
 
     if "CoreWLAN" in str(e) or "CoreLocation" in str(e):
         print("\nCoreWLAN and CoreLocation are macOS system frameworks.")
