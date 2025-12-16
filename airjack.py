@@ -162,6 +162,68 @@ def find_tool_path(tool_name: str, manual_locations: List[str] = None) -> Option
     return None
 
 
+def detect_wifi_interface_mac() -> Optional[str]:
+    """Detect a usable Wi-Fi interface on macOS."""
+    # Prefer CoreWLAN
+    try:
+        if platform.system() == "Darwin":
+            client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
+            iface = client.interface()
+            if iface and iface.interfaceName():
+                return str(iface.interfaceName())
+    except Exception:
+        pass
+
+    # Fallback: networksetup parsing
+    try:
+        output = subprocess.check_output(
+            ["networksetup", "-listallhardwareports"], text=True
+        )
+        lines = output.splitlines()
+        for i, line in enumerate(lines):
+            if "Hardware Port: Wi-Fi" in line or "Hardware Port: AirPort" in line:
+                # Next line typically: Device: en0
+                if i + 1 < len(lines) and "Device:" in lines[i + 1]:
+                    return lines[i + 1].split("Device:")[-1].strip()
+    except Exception:
+        pass
+
+    # Fallback: common defaults
+    for candidate in ("en0", "en1"):
+        try:
+            subprocess.check_call(["ifconfig", candidate], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return candidate
+        except Exception:
+            continue
+    return None
+
+
+def list_wifi_interfaces_mac() -> List[str]:
+    """List Wi-Fi-capable interfaces on macOS."""
+    interfaces = []
+    try:
+        output = subprocess.check_output(
+            ["networksetup", "-listallhardwareports"], text=True
+        )
+        lines = output.splitlines()
+        for i, line in enumerate(lines):
+            if "Hardware Port: Wi-Fi" in line or "Hardware Port: AirPort" in line:
+                if i + 1 < len(lines) and "Device:" in lines[i + 1]:
+                    iface = lines[i + 1].split("Device:")[-1].strip()
+                    interfaces.append(iface)
+    except Exception:
+        pass
+    # Fallback: probe common names
+    for candidate in ("en0", "en1"):
+        if candidate not in interfaces:
+            try:
+                subprocess.check_call(["ifconfig", candidate], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                interfaces.append(candidate)
+            except Exception:
+                continue
+    return interfaces
+
+
 def get_default_tool_paths() -> Dict[str, str]:
     """
     Get default paths for all required tools.
@@ -312,6 +374,8 @@ class WiFiCracker:
         self.setup_tools()
         self.networks = []
         self.saved_ssid = None  # Track disconnected network for reconnection
+        self.default_interface = detect_wifi_interface_mac()
+        self.resolved_interface = None
 
         # Initialize CoreWLAN
         self.cwlan_client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
@@ -464,6 +528,60 @@ class WiFiCracker:
 
         self.log.debug(f"Using hashcat: {self.hashcat_path}")
         self.log.debug(f"Using capture backend ({self.capture_tool}): {self.airsnare_path}")
+
+    def resolve_interface(self) -> Optional[str]:
+        """Determine which Wi-Fi interface to use (with interactive fallback)."""
+        if self.resolved_interface:
+            return self.resolved_interface
+
+        # CLI override
+        if self.args.interface:
+            self.resolved_interface = self.args.interface
+            return self.resolved_interface
+
+        # Auto-detected default
+        if self.default_interface:
+            self.resolved_interface = self.default_interface
+            return self.resolved_interface
+
+        # CoreWLAN current interface
+        try:
+            cw_iface = self.cwlan_interface.interfaceName()
+            if cw_iface:
+                self.resolved_interface = cw_iface
+                return self.resolved_interface
+        except Exception:
+            pass
+
+        # Interactive selection from detected interfaces
+        candidates = list_wifi_interfaces_mac()
+        if len(candidates) == 1:
+            self.resolved_interface = candidates[0]
+            return self.resolved_interface
+        elif len(candidates) > 1:
+            print("\nDetected Wi-Fi interfaces:")
+            for idx, name in enumerate(candidates, start=1):
+                print(f"  {idx}) {name}")
+            try:
+                choice = input(f"Select interface [1-{len(candidates)}] (default 1): ").strip()
+                if choice == "":
+                    self.resolved_interface = candidates[0]
+                else:
+                    sel = int(choice)
+                    if sel < 1 or sel > len(candidates):
+                        self.log.error("Invalid selection, falling back to first interface.")
+                        self.resolved_interface = candidates[0]
+                    else:
+                        self.resolved_interface = candidates[sel - 1]
+                return self.resolved_interface
+            except (ValueError, EOFError, KeyboardInterrupt):
+                self.log.error("Interface selection cancelled or invalid, using first candidate.")
+                self.resolved_interface = candidates[0]
+                return self.resolved_interface
+
+        # Last resort
+        self.resolved_interface = "en0"
+        return self.resolved_interface
     
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
@@ -926,7 +1044,10 @@ class WiFiCracker:
             self.cwlan_interface.setWLANChannel_error_(channel, None)
 
             # Determine the network interface
-            iface = self.args.interface or self.cwlan_interface.interfaceName()
+            iface = self.resolve_interface()
+            if not iface:
+                self.log.error("No WiFi interface detected.")
+                return False
             self.log.info(f"Using interface: {iface}")
 
             self.log.info(f"Initiating handshake capture on BSSID: {bssid}")
