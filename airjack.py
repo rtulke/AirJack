@@ -16,7 +16,7 @@ import json
 import configparser
 import shutil
 import platform
-from os.path import expanduser, join, exists, dirname
+from os.path import expanduser, join, exists, dirname, abspath
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
 
@@ -28,6 +28,8 @@ try:
 except ImportError as e:
     print(f"Error: Missing required dependency: {e}")
     print("\n=== Troubleshooting Guide ===")
+
+BASE_DIR = dirname(abspath(__file__))
 
     if "CoreWLAN" in str(e) or "CoreLocation" in str(e):
         print("\nCoreWLAN and CoreLocation are macOS system frameworks.")
@@ -238,8 +240,12 @@ def get_default_tool_paths() -> Dict[str, str]:
     paths['hashcat_path'] = hashcat_path or join(expanduser('~'), 'hashcat', 'hashcat')
 
     # Detect capture backends
-    zizzania_path = find_tool_path('zizzania')
-    airsnare_path = find_tool_path('airsnare')
+    zizzania_path = find_tool_path('zizzania', manual_locations=[
+        join(BASE_DIR, 'zizzania', 'src', 'zizzania')
+    ])
+    airsnare_path = find_tool_path('airsnare', manual_locations=[
+        join(BASE_DIR, 'airsnare', 'src', 'airsnare')
+    ])
 
     paths['zizzania_path'] = zizzania_path or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
     paths['airsnare_path'] = airsnare_path or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
@@ -466,8 +472,12 @@ class WiFiCracker:
                              else None)
 
         # Paths
-        z_path = self.args.zizzania_path or find_tool_path('zizzania') or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
-        a_path = self.args.airsnare_path or find_tool_path('airsnare') or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
+        z_path = self.args.zizzania_path or find_tool_path('zizzania', manual_locations=[
+            join(BASE_DIR, 'zizzania', 'src', 'zizzania')
+        ]) or join(expanduser('~'), 'zizzania', 'src', 'zizzania')
+        a_path = self.args.airsnare_path or find_tool_path('airsnare', manual_locations=[
+            join(BASE_DIR, 'airsnare', 'src', 'airsnare')
+        ]) or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
 
         # Decide capture tool
         if preferred_capture:
@@ -480,6 +490,10 @@ class WiFiCracker:
             self.capture_path = z_path
         else:
             self.capture_path = a_path
+
+        # If auto-selected airsnare because zizzania missing, log hint
+        if not preferred_capture and self.capture_tool != 'zizzania':
+            self.log.info("zizzania not found; falling back to airsnare. Build zizzania to use it by default.")
 
         if self.args.hashcat_path:
             self.hashcat_path = self.args.hashcat_path
