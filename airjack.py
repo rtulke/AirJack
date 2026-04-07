@@ -226,6 +226,10 @@ def list_wifi_interfaces_mac() -> List[str]:
     return interfaces
 
 
+def is_executable(path: str) -> bool:
+    return path is not None and os.path.isfile(path) and os.access(path, os.X_OK)
+
+
 def get_default_tool_paths() -> Dict[str, str]:
     """
     Get default paths for all required tools.
@@ -290,7 +294,7 @@ class ConfigManager:
             "hashcat_path": detected_paths['hashcat_path'],
             "airsnare_path": detected_paths['airsnare_path'],
             "zizzania_path": detected_paths['zizzania_path'],
-            "capture_tool": "zizzania" if find_tool_path('zizzania') else "airsnare",
+            "capture_tool": "airsnare" if find_tool_path('airsnare') else "zizzania",
         }
         
         self.config["Defaults"] = {
@@ -479,11 +483,11 @@ class WiFiCracker:
             join(BASE_DIR, 'airsnare', 'src', 'airsnare')
         ]) or join(expanduser('~'), 'airsnare', 'src', 'airsnare')
 
-        # Decide capture tool
+        # Decide capture tool (prefer airsnare — actively maintained)
         if preferred_capture:
             self.capture_tool = preferred_capture
         else:
-            self.capture_tool = 'zizzania' if z_path and exists(z_path) else 'airsnare'
+            self.capture_tool = 'airsnare' if is_executable(a_path) else 'zizzania'
 
         # Assign capture path
         if self.capture_tool == 'zizzania':
@@ -491,9 +495,20 @@ class WiFiCracker:
         else:
             self.capture_path = a_path
 
+        # Enforce requested backend presence
+        if preferred_capture == 'zizzania' and not is_executable(self.capture_path):
+            self.log.error(f"Requested capture tool 'zizzania' not found at {self.capture_path}")
+            if not self.args.ignore_missing:
+                sys.exit(1)
+        if preferred_capture == 'airsnare' and not is_executable(self.capture_path):
+            self.log.error(f"Requested capture tool 'airsnare' not found at {self.capture_path}")
+            if not self.args.ignore_missing:
+                sys.exit(1)
+
         # If auto-selected airsnare because zizzania missing, log hint
         if not preferred_capture and self.capture_tool != 'zizzania':
-            self.log.info("zizzania not found; falling back to airsnare. Build zizzania to use it by default.")
+            if not is_executable(z_path):
+                self.log.info("zizzania not found; falling back to airsnare. Build zizzania to use it by default.")
 
         if self.args.hashcat_path:
             self.hashcat_path = self.args.hashcat_path
@@ -513,7 +528,7 @@ class WiFiCracker:
                     self.log.info(f"Hint: Found hashcat at {homebrew_hashcat}")
                     self.log.info(f"Use --hashcat-path {homebrew_hashcat} or add to config file")
 
-            if not exists(self.capture_path):
+            if not is_executable(self.capture_path):
                 missing_tools.append(f"{self.capture_tool}: {self.capture_path}")
                 # Provide helpful hints for both backends
                 found_airsnare = find_tool_path('airsnare')
@@ -1084,6 +1099,13 @@ class WiFiCracker:
                 print("\n✓ Deauth is ENABLED")
                 print("  - Actively disconnecting clients to force reconnection")
                 print("  - Handshake should be captured within 1-5 minutes")
+                # Warn on Apple Silicon — built-in Wi-Fi does not support pcap_inject()
+                if platform.machine() == 'arm64':
+                    print("\n⚠️  WARNING: Apple Silicon detected")
+                    print("  Packet injection (deauth) is NOT supported on the built-in Wi-Fi")
+                    print("  adapter of Apple Silicon Macs. AirSnare will likely exit with an")
+                    print("  injection error.")
+                    print("  → Use passive mode (omit -d) or an external USB Wi-Fi adapter.")
 
             print("\nPress Ctrl+C to abort capture")
             print("="*70 + "\n")
@@ -1118,11 +1140,13 @@ class WiFiCracker:
                     '-i', iface,
                     '-b', bssid,
                     '-w', self.capture_file,
-                    '-v'  # Always use verbose to see deauth attempts
                 ]
-
+                if channel_number:
+                    cmd.extend(['-c', str(channel_number)])
                 if not self.args.deauth:
                     cmd.append('-n')
+                if self.args.verbose:
+                    cmd.append('-v')
 
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
@@ -1206,20 +1230,27 @@ class WiFiCracker:
                     line = line.rstrip()
 
                     # Always display output
-                    print(f"[airsnare] {line}")
+                    print(f"[{self.capture_tool}] {line}")
 
                     # Parse airsnare output for diagnostics
+                    # "New client AA:BB:CC:DD:EE:FF @ ..." (zz_info in dissector.c)
                     if 'New client' in line:
-                        # Extract client MAC
                         parts = line.split()
                         if len(parts) >= 4:
-                            client_mac = parts[3]
+                            client_mac = parts[3] if 'New' in parts else parts[-1]
                             clients_seen.add(client_mac)
-                    elif 'Disassoc' in line or 'Deauth' in line:
+                    # "Deauthenticating AA:BB:... @ ..." (zz_debug in killer.c, requires -v)
+                    elif 'Deauthenticating' in line:
                         deauth_sent += 1
-                    elif 'handshake' in line.lower() or 'EAPOL' in line:
+                    # "^_^ Full handshake for ..." (zz_info in dissector.c)
+                    elif '^_^ Full handshake' in line or '^_^ PMKID' in line:
                         handshake_found = True
                         print("\n✓ HANDSHAKE CAPTURED! Finishing capture...")
+                    # "Packet injection failed" — Apple Silicon limitation
+                    elif 'Packet injection failed' in line or 'injection' in line.lower():
+                        print("\n⚠️  Packet injection not supported on this adapter.")
+                        print("   Use passive mode (remove -d flag) or an external USB Wi-Fi adapter.")
+                        print("   See: https://github.com/rtulke/airsnare#packet-injection-deauth")
 
                 # Wait for process to complete
                 return_code = process.wait()

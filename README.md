@@ -24,8 +24,8 @@ This tool is provided for **EDUCATIONAL PURPOSES ONLY**. Only use AirJack on net
 
 ### External Dependencies
 These tools must be installed separately:
+- [AirSnare](https://github.com/rtulke/airsnare) - WPA handshake capture tool (recommended)
 - [hashcat](https://hashcat.net/hashcat/) - Password recovery utility
-- [zizzania](https://github.com/cyrus-and/zizzania) **or** [AirSnare](https://github.com/rtulke/airsnare) - WPA handshake capture tool
 - [hcxpcapngtool](https://github.com/ZerBea/hcxtools) - Conversion tool for handshake captures
 
 
@@ -59,21 +59,9 @@ pip install -r requirements.txt
 # Install Homebrew if not already installed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Install hashcat and hcxtools
-brew install hashcat hcxtools libpcap wget
-
-# Install Zizzania, https://github.com/cyrus-and/zizzania
-git clone https://github.com/cyrus-and/zizzania.git
-cd zizzania
-make -f config.Makefile
-make
-# make install
-# make uninstall
-
-# Or install AirSnare, a fork and rewritten version of Zizzania, instead.
-git clone https://github.com/rtulke/airsnare.git
-cd airsnare
-make install
+# Install AirSnare (capture backend), hashcat and hcxtools
+brew tap rtulke/airsnare
+brew install airsnare hashcat hcxtools
 ```
 
 4. Setup system wide

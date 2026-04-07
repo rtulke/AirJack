@@ -159,9 +159,9 @@ install_zizzania() {
         elif [ -d "$HOME/zizzania/src" ]; then
             SRC_DIR="$HOME/zizzania"
         else
-            print_message "Cloning AirJack repo to build zizzania..."
-            git clone https://github.com/rtulke/AirJack.git "$TEMP_DIR/zizzania"
-            SRC_DIR="$TEMP_DIR/zizzania/zizzania"
+            print_message "Cloning zizzania..."
+            git clone https://github.com/cyrus-and/zizzania.git "$TEMP_DIR/zizzania"
+            SRC_DIR="$TEMP_DIR/zizzania"
         fi
 
         if [ ! -d "$SRC_DIR/src" ]; then
@@ -184,112 +184,23 @@ install_zizzania() {
     fi
 }
 
-# Install AirSnare
+# Install AirSnare via Homebrew tap
 install_airsnare() {
     if ask_continue "Install AirSnare - required for handshake capture?"; then
-        print_message "Installing AirSnare dependencies..."
-        brew install --formula cmake libpcap wget
-        
-        # Set up environment for AirSnare compilation
-        export LDFLAGS="-L$(brew --prefix libpcap)/lib"
-        export CPPFLAGS="-I$(brew --prefix libpcap)/include"
-        export PKG_CONFIG_PATH="$(brew --prefix libpcap)/lib/pkgconfig"
-        
-        print_message "Cloning AirSnare repository..."
-        if [ -d ~/airsnare ]; then
-            print_warning "AirSnare directory already exists at ~/airsnare."
-            if ask_continue "Re-install AirSnare?"; then
-                rm -rf ~/airsnare
-                git clone https://github.com/rtulke/airsnare.git ~/airsnare
-            fi
+        print_message "Installing AirSnare via Homebrew tap..."
+        brew tap rtulke/airsnare
+        if brew list airsnare &> /dev/null; then
+            brew upgrade airsnare || true
         else
-            git clone https://github.com/rtulke/airsnare.git ~/airsnare
+            brew install airsnare
         fi
-        
-        if [ -d ~/airsnare ]; then
-            cd ~/airsnare
-            print_message "Configuring AirSnare..."
-            
-            # Check for different build systems
-            if [ -f "CMakeLists.txt" ]; then
-                mkdir -p build
-                cd build
-                cmake ..
-                print_message "Compiling AirSnare..."
-                make
-                print_success "AirSnare installed at ~/airesnare/build"
-                AIRSNARE_PATH="$HOME/airesnare/build/airesnare"
-            elif [ -f "Makefile" ]; then
-                print_message "Compiling airesnare..."
-                make
-                make install
-                print_success "AirSnare installed at ~/airesnare"
-                AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
-            elif [ -f "config.Makefile" ]; then
-                print_message "Using config.Makefile..."
-                make -f config.Makefile
-                print_message "Compiling AirSnare..."
-                make
-                print_success "AirSnare installed at ~/airesnare"
-                AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
-            else
-                print_message "Manual build required. Attempting autogen/configure..."
-                if [ -f "autogen.sh" ]; then
-                    ./autogen.sh
-                    ./configure
-                    make
-                    print_success "AirSnare installed at ~/airesnare"
-                    AIRSNARE_PATH="$HOME/airesnare/src/airesnare"
-                else
-                    print_error "No build system detected. Check the README in ~/airesnare"
-                    return 1
-                fi
-            fi
-            
-            # Configure sudo permissions for AirSnare
-            if ask_continue "Configure sudo to allow passwordless execution of AirSnare?"; then
-                print_message "Setting up sudo permissions for AirSnare..."
-                
-                # Determine current username
-                CURRENT_USER=$(whoami)
-                
-                # Verify AirSnare path
-                if [ ! -x "$AIRSNARE_PATH" ]; then
-                    print_warning "AirSnare not found at $AIRSNARE_PATH, trying to locate it..."
-                    if [ -x "$HOME/airsnare/build/airsnare" ]; then
-                        AIRSNARE_PATH="$HOME/airsnare/build/airsnare"
-                    elif [ -x "$HOME/airsnare/src/airsnare" ]; then
-                        AIRSNARE_PATH="$HOME/airsnare/src/airsnare"
-                    else
-                        print_error "Cannot find AirSnare executable"
-                        return 1
-                    fi
-                fi
-                
-                print_message "Using AirSnare path: $AIRSNARE_PATH"
-                
-                # Create a temporary sudoers file
-                SUDOERS_TMP=$(mktemp)
-                echo "$CURRENT_USER ALL=(ALL) NOPASSWD: $AIRSNARE_PATH" > "$SUDOERS_TMP"
-                
-                # Validate the syntax
-                visudo -cf "$SUDOERS_TMP"
-                if [ $? -ne 0 ]; then
-                    print_error "Invalid sudoers syntax"
-                    rm -f "$SUDOERS_TMP"
-                    return 1
-                fi
-                
-                # Add to sudoers.d directory
-                sudo mkdir -p /etc/sudoers.d
-                sudo cp "$SUDOERS_TMP" /etc/sudoers.d/airsnare
-                sudo chmod 0440 /etc/sudoers.d/airsnare
-                rm -f "$SUDOERS_TMP"
-                
-                print_success "Sudo permissions configured for $AIRSNARE_PATH"
-            fi
+
+        AIRSNARE_PATH="$(brew --prefix airsnare)/bin/airsnare"
+        if [ -x "$AIRSNARE_PATH" ]; then
+            print_success "AirSnare installed at $AIRSNARE_PATH"
         else
-            print_error "Failed to install AirSnare."
+            print_error "AirSnare installation failed."
+            return 1
         fi
     fi
 }
