@@ -1282,6 +1282,18 @@ class WiFiCracker:
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
 
+            # Cache sudo credentials before we lose the controlling terminal.
+            # start_new_session=True (used below) calls setsid(), which detaches
+            # the child from the controlling tty so sudo cannot prompt for a
+            # password.  Running "sudo -v" here — while we still own the tty —
+            # refreshes the credential cache so the subsequent sudo invocation
+            # succeeds without prompting.
+            self.log.info("Requesting sudo credentials for capture tool...")
+            ret = subprocess.run(['sudo', '-v'])
+            if ret.returncode != 0:
+                self.log.error("sudo authentication failed; cannot start capture.")
+                return
+
             # Launch AirSnare and stream its output.
             #
             # Design note — why a reader thread instead of readline() in a loop:
@@ -1299,7 +1311,7 @@ class WiFiCracker:
                     text=True,
                     bufsize=1,                 # line-buffered (requires text=True)
                     universal_newlines=True,
-                    start_new_session=True,    # new process group → killpg kills sudo + airsnare child
+                    preexec_fn=os.setpgrp,     # new process group (not session) → killpg works, /dev/tty preserved for sudo
                 )
 
                 # Background reader thread: drain stdout → queue until EOF.
