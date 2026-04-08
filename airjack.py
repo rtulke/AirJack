@@ -1,21 +1,59 @@
 #!/usr/bin/env python3
 """
-AirJack - A WiFi security testing tool for macOS
+AirJack — Wi-Fi security testing tool for macOS.
 
-This tool is for educational purposes and security testing of YOUR OWN networks only.
-Unauthorized access to computer networks is illegal and punishable by law.
+Workflow
+--------
+1. Request CoreLocation permission (required to read BSSIDs on macOS 14+).
+2. Scan nearby networks via CoreWLAN and present an interactive selection table.
+3. Disassociate from the current network, tune the interface to the target channel.
+4. Launch AirSnare (capture backend) via sudo to capture a WPA/WPA2 handshake.
+5. Convert the pcap to hashcat-22000 format with hcxpcapngtool.
+6. Run hashcat for dictionary, brute-force or manual cracking.
+7. Optionally clean up sensitive capture files.
+
+Platform requirements
+---------------------
+macOS 14 (Sonoma) or later — uses CoreWLAN and CoreLocation.
+Python 3.8+ (uses walrus operator style; f-strings since 3.6).
+
+macOS-version notes
+-------------------
+• macOS 14 / 15: CoreWLAN stable; Location Services changes on 15+ may cause
+  BSSID:None for networks if the calling process is not /usr/bin/python3 (see
+  the venv warning emitted at startup).
+• macOS 26+: airport utility expected to be removed; CoreWLAN API changes
+  possible. The code guards against both by using CoreWLAN as the primary path
+  and airport only as a fallback.
+• Apple Silicon (arm64): pcap_inject() is not supported on the built-in Wi-Fi
+  adapter — deauthentication (active mode) will fail. Use passive mode (-n) or
+  an external USB adapter.
+
+External tools required
+-----------------------
+  airsnare        WPA handshake capture  (brew tap rtulke/airsnare && brew install airsnare)
+  hcxpcapngtool   pcap → hashcat format  (brew install hcxtools)
+  hashcat         WPA cracking           (brew install hashcat)
+
+Legal notice
+------------
+For educational purposes and security testing of networks you own or have
+explicit written permission to test. Unauthorized access is illegal.
 """
 
+import queue
+import select
 import subprocess
 import re
 import argparse
 import os
 import sys
 import logging
-import json
 import configparser
 import shutil
 import platform
+import threading
+import time
 from os.path import expanduser, join, exists, dirname, abspath
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
@@ -304,8 +342,10 @@ class ConfigManager:
             "verbose": "false",
         }
         
-        # Ensure directory exists
-        os.makedirs(dirname(config_path), exist_ok=True)
+        # dirname("filename") returns "" when no directory component is given.
+        # os.makedirs("") raises FileNotFoundError, so fall back to "." (CWD).
+        config_dir = dirname(config_path) or '.'
+        os.makedirs(config_dir, exist_ok=True)
         
         # Write config
         try:
@@ -424,19 +464,19 @@ class WiFiCracker:
         # Only apply config if available
         if self.config:
                 
-            if not hasattr(self.args, 'hashcat_path') or self.args.hashcat_path is None:
+            if self.args.hashcat_path is None:
                 self.args.hashcat_path = self.config.get('hashcat_path', None)
-                
-            if not hasattr(self.args, 'airsnare_path') or self.args.airsnare_path is None:
+
+            if self.args.airsnare_path is None:
                 self.args.airsnare_path = self.config.get('airsnare_path', None)
 
-            if not hasattr(self.args, 'zizzania_path') or self.args.zizzania_path is None:
+            if self.args.zizzania_path is None:
                 self.args.zizzania_path = self.config.get('zizzania_path', None)
 
-            if not hasattr(self.args, 'capture_tool') or self.args.capture_tool is None:
+            if self.args.capture_tool is None:
                 self.args.capture_tool = self.config.get('capture_tool', None)
-                
-            if not hasattr(self.args, 'interface') or self.args.interface is None:
+
+            if self.args.interface is None:
                 self.args.interface = self.config.get('interface', None)
 
             # Boolean flags (only set to True if in config and not set via command line)
@@ -453,14 +493,24 @@ class WiFiCracker:
                 self.args.verbose = str_to_bool(self.config['verbose'])
     
     def setup_logging(self):
-        """Configure logging based on verbosity level."""
+        """Configure a named logger for AirJack.
+
+        Uses a dedicated 'airjack' logger (not the root logger) to avoid
+        polluting other modules' log output when AirJack is imported as a
+        library. Adds a StreamHandler only once to prevent duplicate lines
+        if WiFiCracker is instantiated more than once in the same process.
+        """
         log_level = logging.DEBUG if self.args.verbose else logging.INFO
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s [%(levelname)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        self.log = logging
+        logger = logging.getLogger('airjack')
+        logger.setLevel(log_level)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s [%(levelname)s] %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            logger.addHandler(handler)
+        self.log = logger
     
     def setup_tools(self):
         """Set up paths to external tools and verify their existence."""
@@ -513,16 +563,19 @@ class WiFiCracker:
         if self.args.hashcat_path:
             self.hashcat_path = self.args.hashcat_path
         else:
-            # Try smart detection
             detected = find_tool_path('hashcat')
             self.hashcat_path = detected or join(expanduser('~'), 'hashcat', 'hashcat')
+
+        # hcxpcapngtool converts pcap → hashcat-22000; detect early so the error
+        # is shown at startup rather than after a 10-minute capture session.
+        self.hcxpcapngtool_path = shutil.which('hcxpcapngtool') or 'hcxpcapngtool'
 
         # Validate tool paths if not in dry_run mode
         if not self.args.dry_run:
             missing_tools = []
+
             if not exists(self.hashcat_path):
                 missing_tools.append(f"hashcat: {self.hashcat_path}")
-                # Provide helpful hint
                 homebrew_hashcat = find_tool_path('hashcat')
                 if homebrew_hashcat:
                     self.log.info(f"Hint: Found hashcat at {homebrew_hashcat}")
@@ -530,7 +583,6 @@ class WiFiCracker:
 
             if not is_executable(self.capture_path):
                 missing_tools.append(f"{self.capture_tool}: {self.capture_path}")
-                # Provide helpful hints for both backends
                 found_airsnare = find_tool_path('airsnare')
                 found_zizzania = find_tool_path('zizzania')
                 if found_zizzania:
@@ -540,19 +592,23 @@ class WiFiCracker:
                     self.log.info(f"Hint: Found airsnare at {found_airsnare}")
                     self.log.info(f"Use --airsnare-path {found_airsnare} or add to config file")
 
+            # Check hcxpcapngtool separately — it is only needed after capture,
+            # but missing it wastes the entire capture session.
+            if not shutil.which('hcxpcapngtool'):
+                missing_tools.append("hcxpcapngtool (from hcxtools): not found in PATH")
+
             if missing_tools:
                 self.log.error("Missing required tools:")
                 for tool in missing_tools:
                     self.log.error(f"  - {tool}")
                 self.log.error("")
                 self.log.error("Solutions:")
-                self.log.error("1. Install via Homebrew: brew install hashcat hcxtools")
-                self.log.error("2. Build manually and create config: airjack.py -C ~/.airjack.conf")
-                self.log.error("3. Specify paths: --hashcat-path /path/to/hashcat --airsnare-path /path/to/airsnare or --zizzania-path /path/to/zizzania")
+                self.log.error("  brew tap rtulke/airsnare && brew install airsnare hashcat hcxtools")
                 if not self.args.ignore_missing:
                     sys.exit(1)
 
         self.log.debug(f"Using hashcat: {self.hashcat_path}")
+        self.log.debug(f"Using hcxpcapngtool: {self.hcxpcapngtool_path}")
         self.log.debug(f"Using capture backend ({self.capture_tool}): {self.capture_path}")
 
     def resolve_interface(self) -> Optional[str]:
@@ -973,12 +1029,16 @@ class WiFiCracker:
                         self.log.debug(f"Skipping network with no BSSID (SSID: {result.ssid()})")
                         continue
 
+                    # wlanChannel() returns a CWChannel object; channelNumber() extracts
+                    # the integer. result.channel() is deprecated and returns a CWChannel
+                    # object (not an int) on macOS 14+, which breaks PrettyTable display.
+                    cw_channel = result.wlanChannel()
                     network_info = {
                         'ssid': result.ssid() or "<hidden>",
                         'bssid': bssid,
                         'rssi': result.rssiValue(),
-                        'channel_object': result.wlanChannel(),
-                        'channel_number': result.channel(),
+                        'channel_object': cw_channel,
+                        'channel_number': cw_channel.channelNumber() if cw_channel else '-',
                         'security': security
                     }
                     self.networks.append(network_info)
@@ -986,8 +1046,13 @@ class WiFiCracker:
                     self.log.warning(f"Error parsing network: {e}")
                     continue
 
-            # Sort networks by RSSI value, descending
-            self.networks = sorted(self.networks, key=lambda x: x['rssi'], reverse=True)
+            # Sort by RSSI descending; guard against None (some entries return None
+            # for rssiValue() when the scan result is partially formed).
+            self.networks = sorted(
+                self.networks,
+                key=lambda x: x['rssi'] if x['rssi'] is not None else -999,
+                reverse=True
+            )
 
             # Add sorted networks to table
             for i, network in enumerate(self.networks):
@@ -1053,20 +1118,45 @@ class WiFiCracker:
             return -1
     
     def capture_network(self, bssid: str, channel) -> bool:
-        """Capture WPA handshake for the selected network.
-        
+        """Capture a WPA/WPA2 handshake for the selected network.
+
+        Lifecycle
+        ---------
+        1. Disassociate from current network (CoreWLAN) so the interface is free.
+        2. Tune the interface to the target channel via CoreWLAN
+           setWLANChannel_error_() — must happen *before* RFMON is activated
+           because pcap_activate() takes over the interface.
+        3. Build and launch the capture backend (AirSnare or zizzania) via sudo.
+           AirSnare activates RFMON, optionally sends deauth frames, and writes
+           captured frames to a pcap file.
+        4. Stream AirSnare's stderr output (merged into stdout) in real-time
+           through a daemon reader thread → queue to avoid blocking the timeout
+           check (see _enqueue_output inner function).
+        5. After AirSnare exits (handshake captured, Ctrl-C, or timeout), convert
+           the pcap to hashcat-22000 format using hcxpcapngtool.
+
+        AirSnare log-level note
+        -----------------------
+        AirSnare's default log level is ERROR (0 — only [!] messages).
+        We always pass at least -v (INFO level, [+] messages) so "New client"
+        and "^_^ Full handshake" events appear in the output stream.  With
+        --verbose, -vvv is passed to also surface DEBUG-level deauth events.
+
         Args:
-            bssid: BSSID of the target network
-            channel: WiFi channel object
-            
+            bssid:   Target AP BSSID string (e.g. "AA:BB:CC:DD:EE:FF").
+            channel: CWChannel object returned by CWNetwork.wlanChannel().
+                     Used for CoreWLAN channel tuning and, when channelNumber()
+                     is extractable, passed as -c <n> to AirSnare.
+
         Returns:
-            bool: True if successful, False otherwise
+            True if a handshake was captured and converted successfully.
         """
         try:
-            # Dissociate from the current network
+            # Step 1: Disassociate.  CoreWLAN requires the interface to be
+            # disassociated before setWLANChannel_error_() can change the channel.
             self.cwlan_interface.disassociate()
 
-            # Set the channel
+            # Step 2: Set the channel
             self.cwlan_interface.setWLANChannel_error_(channel, None)
 
             # Determine the network interface
@@ -1099,8 +1189,10 @@ class WiFiCracker:
                 print("\n✓ Deauth is ENABLED")
                 print("  - Actively disconnecting clients to force reconnection")
                 print("  - Handshake should be captured within 1-5 minutes")
-                # Warn on Apple Silicon — built-in Wi-Fi does not support pcap_inject()
-                if platform.machine() == 'arm64':
+                # Warn on Apple Silicon macOS — built-in Wi-Fi does not support pcap_inject().
+                # Note: platform.machine() == 'arm64' also matches Linux ARM (Raspberry Pi),
+                # so the additional Darwin check is required to avoid false positives.
+                if platform.system() == 'Darwin' and platform.machine() == 'arm64':
                     print("\n⚠️  WARNING: Apple Silicon detected")
                     print("  Packet injection (deauth) is NOT supported on the built-in Wi-Fi")
                     print("  adapter of Apple Silicon Macs. AirSnare will likely exit with an")
@@ -1145,40 +1237,67 @@ class WiFiCracker:
                     cmd.extend(['-c', str(channel_number)])
                 if not self.args.deauth:
                     cmd.append('-n')
+                # AirSnare default log level is ERROR (0); -v raises it to INFO (1)
+                # which is required to see "New client" and "^_^ Full handshake" events.
+                # With AirJack verbose, add -vvv to also see deauth debug messages.
                 if self.args.verbose:
+                    cmd.append('-vvv')
+                else:
                     cmd.append('-v')
 
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(cmd)}")
 
-            # Use Popen for live output with timeout
-            import time
-            import signal
-
+            # Launch AirSnare and stream its output.
+            #
+            # Design note — why a reader thread instead of readline() in a loop:
+            # readline() is a blocking call. During passive captures with no nearby
+            # clients, AirSnare can run silently for minutes. A blocking readline()
+            # in the main loop makes the timeout check unreachable and causes the
+            # tool to appear frozen. A daemon reader thread drains stdout into a
+            # queue; the main loop uses queue.get(timeout=0.5) which unblocks every
+            # 0.5 s so the elapsed-time check always fires on schedule.
             try:
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.STDOUT,  # merge stderr into stdout pipe
                     text=True,
-                    bufsize=1,  # Line buffered
-                    universal_newlines=True
+                    bufsize=1,                 # line-buffered (requires text=True)
+                    universal_newlines=True,
                 )
 
-                # Timeout: 10 minutes (600 seconds)
-                timeout_seconds = 600
-                start_time = time.time()
+                # Background reader thread: drain stdout → queue until EOF.
+                output_queue: queue.Queue = queue.Queue()
 
-                # Track what we've seen
-                clients_seen = set()
+                def _enqueue_output(stream: Any, q: queue.Queue) -> None:
+                    """Push lines from *stream* to *q*; sentinel None signals EOF."""
+                    try:
+                        for raw in iter(stream.readline, ''):
+                            q.put(raw)
+                    finally:
+                        q.put(None)  # EOF sentinel consumed by main loop
+
+                reader = threading.Thread(
+                    target=_enqueue_output,
+                    args=(process.stdout, output_queue),
+                    daemon=True,   # killed automatically when main thread exits
+                )
+                reader.start()
+
+                # Session state for diagnostics and early-exit decisions.
+                timeout_seconds = 600   # 10-minute cap; configurable in future
+                start_time = time.time()
+                clients_seen: set = set()
                 deauth_sent = 0
                 handshake_found = False
 
                 print(f"[INFO] Capture timeout: {timeout_seconds // 60} minutes\n")
 
-                # Read output line by line with timeout check
+                # Main output/timeout loop.
+                # queue.get(timeout=0.5) blocks for at most 0.5 s, so the elapsed
+                # check fires every half-second even when AirSnare is quiet.
                 while True:
-                    # Check timeout
                     elapsed = time.time() - start_time
                     if elapsed > timeout_seconds:
                         print(f"\n[TIMEOUT] Capture exceeded {timeout_seconds // 60} minutes")
@@ -1218,43 +1337,66 @@ class WiFiCracker:
                             process.kill()
                         return False
 
-                    # Read line with small timeout
-                    line = process.stdout.readline()
-                    if not line:
-                        # Check if process ended
+                    # Try to fetch the next line; yield control after 0.5 s if
+                    # no output arrived (allows the timeout check above to fire).
+                    try:
+                        raw_line = output_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        # No output yet; bail out if AirSnare already exited.
                         if process.poll() is not None:
                             break
-                        time.sleep(0.1)
                         continue
 
-                    line = line.rstrip()
+                    if raw_line is None:   # EOF sentinel from reader thread
+                        break
 
-                    # Always display output
+                    line = raw_line.rstrip()
                     print(f"[{self.capture_tool}] {line}")
 
-                    # Parse airsnare output for diagnostics
-                    # "New client AA:BB:CC:DD:EE:FF @ ..." (zz_info in dissector.c)
+                    # --- Parse AirSnare diagnostic output ---
+                    #
+                    # AirSnare writes to stderr; we redirect it to stdout via
+                    # stderr=STDOUT. When output is a pipe (not a TTY), AirSnare
+                    # omits ANSI colours, so prefixes are plain ASCII:
+                    #
+                    #   [+] message   INFO  level (visible with -v or higher)
+                    #   [*] message   DEBUG level (visible with -vvv or higher)
+                    #   [!] message   ERROR level (always visible)
+                    #
+                    # Source references are to the AirSnare C source.
+
+                    # "[+] New client AA:BB:CC:DD:EE:FF @ CC:DD:... $'SSID'"
+                    # dissector.c: zz_info("New client %s @ %s $'%s'", station, bssid, ssid)
+                    # parts[3] is the station MAC address.
                     if 'New client' in line:
                         parts = line.split()
                         if len(parts) >= 4:
-                            client_mac = parts[3] if 'New' in parts else parts[-1]
-                            clients_seen.add(client_mac)
-                    # "Deauthenticating AA:BB:... @ ..." (zz_debug in killer.c, requires -v)
+                            clients_seen.add(parts[3])
+
+                    # "[*] Deauthenticating AA:BB:... @ CC:DD:..."
+                    # killer.c: zz_debug("Deauthenticating %s @ %s", station, bssid)
+                    # Only visible when -vvv is passed (DEBUG level).
                     elif 'Deauthenticating' in line:
                         deauth_sent += 1
-                    # "^_^ Full handshake for ..." (zz_info in dissector.c)
+
+                    # "[+] ^_^ Full handshake for AA:BB:... @ CC:DD:... $'SSID'"
+                    # "[+] ^_^ PMKID for AA:BB:... @ CC:DD:... $'SSID': WPA*01*..."
+                    # dissector.c: zz_info("^_^ Full handshake ...") / zz_info("^_^ PMKID ...")
                     elif '^_^ Full handshake' in line or '^_^ PMKID' in line:
                         handshake_found = True
                         print("\n✓ HANDSHAKE CAPTURED! Finishing capture...")
-                    # "Packet injection failed" — Apple Silicon limitation
-                    elif 'Packet injection failed' in line or 'injection' in line.lower():
+
+                    # "[!] Packet injection failed (...) — built-in Wi-Fi adapters on macOS
+                    #      do not support monitor-mode injection; use passive mode (-n) or
+                    #      an external USB adapter"
+                    # killer.c: zz_error() on pcap_inject() failure
+                    elif 'Packet injection failed' in line:
                         print("\n⚠️  Packet injection not supported on this adapter.")
                         print("   Use passive mode (remove -d flag) or an external USB Wi-Fi adapter.")
                         print("   See: https://github.com/rtulke/airsnare#packet-injection-deauth")
 
-                # Wait for process to complete
+                # AirSnare exited normally (EOF on stdout).
                 return_code = process.wait()
-
                 if return_code != 0:
                     self.log.error(f"AirSnare exited with code {return_code}")
                     return False
@@ -1274,9 +1416,11 @@ class WiFiCracker:
                 self.log.error("This may indicate that no handshake was captured.")
                 return False
 
-            # Convert the capture to hashcat format
+            # Convert the capture to hashcat-22000 format.
+            # hcxpcapngtool path was resolved in setup_tools() at startup to avoid
+            # discovering a missing binary after a 10-minute capture session.
             self.log.info("Converting capture to hashcat format...")
-            conv_cmd = ['hcxpcapngtool', '-o', self.hashcat_file, self.capture_file]
+            conv_cmd = [self.hcxpcapngtool_path, '-o', self.hashcat_file, self.capture_file]
 
             if self.args.verbose:
                 self.log.debug(f"Running command: {' '.join(conv_cmd)}")

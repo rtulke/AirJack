@@ -18,6 +18,7 @@ Usage:
 import subprocess
 import sys
 import os
+import shlex
 import time
 import argparse
 import getpass
@@ -148,9 +149,9 @@ def disable_monitor_mode(interface):
 
 
 def enable_wifi(interface):
-    """Enable WiFi power"""
+    """Enable WiFi power on the given interface."""
     print(f"[*] Enabling WiFi on {interface}...")
-    stdout, stderr, code = run_command("networksetup -setairportpower en0 on")
+    stdout, stderr, code = run_command(f"networksetup -setairportpower {interface} on")
     
     if code == 0:
         print("[+] WiFi enabled")
@@ -161,9 +162,9 @@ def enable_wifi(interface):
         return False
 
 
-def get_preferred_networks():
-    """Get list of preferred networks"""
-    stdout, _, _ = run_command("networksetup -listpreferredwirelessnetworks en0")
+def get_preferred_networks(interface: str = DEFAULT_INTERFACE):
+    """Return the ordered list of preferred Wi-Fi networks for *interface*."""
+    stdout, _, _ = run_command(f"networksetup -listpreferredwirelessnetworks {interface}")
     networks = []
     
     for line in stdout.split('\n')[1:]:  # Skip header
@@ -309,7 +310,7 @@ def connect_to_network(interface, ssid=None, password=None):
     """Connect to WiFi network"""
     if not ssid:
         # Try to connect to preferred network
-        preferred = get_preferred_networks()
+        preferred = get_preferred_networks(interface)
         if preferred:
             ssid = preferred[0]
             print(f"[*] Connecting to preferred network: {ssid}")
@@ -320,9 +321,9 @@ def connect_to_network(interface, ssid=None, password=None):
         print(f"[*] Connecting to: {ssid}")
     
     if password:
-        cmd = f'networksetup -setairportnetwork {interface} "{ssid}" "{password}"'
+        cmd = f'networksetup -setairportnetwork {interface} {shlex.quote(ssid)} {shlex.quote(password)}'
     else:
-        cmd = f'networksetup -setairportnetwork {interface} "{ssid}"'
+        cmd = f'networksetup -setairportnetwork {interface} {shlex.quote(ssid)}'
     
     stdout, stderr, code = run_command(cmd, check=False)
     
@@ -501,11 +502,11 @@ def main():
         
         # Ensure WiFi is enabled first
         print("[*] Ensuring WiFi is enabled...")
-        run_command("networksetup -setairportpower en0 on", check=False)
+        run_command(f"networksetup -setairportpower {interface} on", check=False)
         time.sleep(2)
-        
+
         # Get preferred network
-        preferred = get_preferred_networks()
+        preferred = get_preferred_networks(interface)
         if preferred:
             ssid = preferred[0]
             print(f"[*] Checking if {ssid} is in range...")
