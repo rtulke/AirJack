@@ -43,6 +43,7 @@ explicit written permission to test. Unauthorized access is illegal.
 
 import queue
 import select
+import signal
 import subprocess
 import re
 import argparse
@@ -831,7 +832,11 @@ class WiFiCracker:
             return False, None
 
     def reconnect_to_network(self, ssid: str) -> bool:
-        """Reconnect to a specific WiFi network.
+        """Reconnect to a specific WiFi network after capture.
+
+        Retries up to 3 times with increasing delays because macOS needs several
+        seconds to release the interface from RFMON mode after AirSnare exits.
+        Falls back to networksetup if CoreWLAN association keeps returning -3900.
 
         Args:
             ssid: Network name to reconnect to
@@ -842,50 +847,71 @@ class WiFiCracker:
         if not ssid:
             return False
 
+        max_retries = 3
+        for attempt in range(max_retries):
+            # Delays: 5 s, 8 s, 11 s — gives macOS time to exit RFMON on each retry.
+            delay = 5 + attempt * 3
+            if attempt == 0:
+                self.log.info(f"Waiting {delay}s for interface to leave RFMON mode...")
+            else:
+                self.log.info(f"Reconnect attempt {attempt + 1}/{max_retries} (waiting {delay}s)...")
+            sleep(delay)
+
+            try:
+                self.log.info(f"Attempting to reconnect to '{ssid}'...")
+
+                scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(ssid, None)
+                if error:
+                    self.log.warning(f"Scan error on attempt {attempt + 1}: {error}")
+                    continue
+
+                if not scan_results or len(scan_results) == 0:
+                    self.log.warning(f"Network '{ssid}' not in range on attempt {attempt + 1}")
+                    continue
+
+                target_network = None
+                for network in scan_results:
+                    target_network = network
+                    break
+
+                if not target_network:
+                    continue
+
+                # macOS uses Keychain credentials automatically when password=None.
+                success, error = self.cwlan_interface.associateToNetwork_password_error_(
+                    target_network, None, None
+                )
+                if error:
+                    self.log.warning(f"Association failed on attempt {attempt + 1}: {error}")
+                    continue
+
+                self.log.info(f"Successfully reconnected to '{ssid}'")
+                return True
+
+            except Exception as e:
+                self.log.warning(f"Reconnect attempt {attempt + 1} exception: {e}")
+                continue
+
+        # All CoreWLAN attempts failed — networksetup fallback.
+        # This works even when CoreWLAN reports -3900 because it talks to the
+        # Wi-Fi daemon directly rather than using the CoreWLAN API.
+        self.log.warning("CoreWLAN reconnect failed; trying networksetup fallback...")
+        iface = self.resolve_interface() or "en0"
         try:
-            self.log.info(f"Attempting to reconnect to '{ssid}'...")
-
-            # Wait a moment for interface to be ready for reconnection
-            # (after capture operations, interface needs time to stabilize)
-            sleep(2)
-
-            # Scan for available networks
-            scan_results, error = self.cwlan_interface.scanForNetworksWithName_error_(ssid, None)
-
-            if error:
-                self.log.error(f"Error scanning for '{ssid}': {error}")
-                return False
-
-            if not scan_results or len(scan_results) == 0:
-                self.log.error(f"Network '{ssid}' not found")
-                return False
-
-            # scan_results is an NSSet, convert to list to access elements
-            # Or just get any network from the set since they all have the same SSID
-            target_network = None
-            for network in scan_results:
-                target_network = network
-                break  # Get first network from set
-
-            if not target_network:
-                self.log.error(f"Could not retrieve network object for '{ssid}'")
-                return False
-
-            # Try to associate with the network (no password, for open networks)
-            # For secured networks, macOS will use stored credentials from Keychain
-            success, error = self.cwlan_interface.associateToNetwork_password_error_(target_network, None, None)
-
-            if error:
-                self.log.warning(f"Could not reconnect to '{ssid}': {error}")
-                self.log.info("Please reconnect manually or check your Keychain credentials")
-                return False
-
-            self.log.info(f"Successfully reconnected to '{ssid}'")
-            return True
-
+            result = subprocess.run(
+                ["networksetup", "-setairportnetwork", iface, ssid],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0 and "Failed" not in result.stdout:
+                self.log.info(f"Reconnected to '{ssid}' via networksetup")
+                return True
+            self.log.warning(f"networksetup failed: {result.stdout or result.stderr}")
         except Exception as e:
-            self.log.error(f"Exception during reconnection: {e}")
-            return False
+            self.log.warning(f"networksetup fallback exception: {e}")
+
+        self.log.warning(f"Could not reconnect to '{ssid}'. Please reconnect manually.")
+        self.log.warning(f"  sudo networksetup -setairportnetwork {iface} \"{ssid}\"")
+        return False
 
     def colorize_rssi(self, rssi: int) -> str:
         """Colorize RSSI values based on signal strength.
@@ -1273,6 +1299,7 @@ class WiFiCracker:
                     text=True,
                     bufsize=1,                 # line-buffered (requires text=True)
                     universal_newlines=True,
+                    start_new_session=True,    # new process group → killpg kills sudo + airsnare child
                 )
 
                 # Background reader thread: drain stdout → queue until EOF.
@@ -1338,11 +1365,18 @@ class WiFiCracker:
                         print("  • Check if network is WPA2 (not WPA3-only)")
                         print("="*70)
 
-                        process.terminate()
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
                         try:
                             process.wait(timeout=5)
                         except subprocess.TimeoutExpired:
-                            process.kill()
+                            try:
+                                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            process.wait()
                         return False
 
                     # Try to fetch the next line; yield control after 0.5 s if
@@ -1411,11 +1445,21 @@ class WiFiCracker:
 
             except KeyboardInterrupt:
                 self.log.warning("\nCapture interrupted by user")
-                process.terminate()
+                # process.terminate() only signals the sudo wrapper, leaving
+                # the airsnare child orphaned in RFMON mode. Kill the entire
+                # process group (sudo + airsnare) so nothing is left behind.
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
                 return False
 
             # Check if capture file was created
