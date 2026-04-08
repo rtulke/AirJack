@@ -10,4 +10,5 @@ capture.hc22000
 venv/
 __pycache__/
 *.pyc
+CLAUDE
 TODO.md

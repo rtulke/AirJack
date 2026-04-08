@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import ssl
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,10 +27,11 @@ from urllib.error import URLError, HTTPError
 class VendorUpdater:
     """Handles fetching and merging MAC vendor data from multiple sources."""
 
-    def __init__(self, config_file: str, output_file: str, verbose: bool = False):
+    def __init__(self, config_file: str, output_file: str, verbose: bool = False, insecure: bool = False):
         self.config_file = config_file
         self.output_file = output_file
         self.verbose = verbose
+        self.insecure = insecure
         self.vendors: Dict[str, str] = {}  # OUI -> Vendor name
         self.sources_processed: Set[str] = set()
 
@@ -70,14 +72,27 @@ class VendorUpdater:
         """Fetch content from URL with error handling."""
         self.log(f"Fetching {source_name} from {url}")
 
+        ctx = ssl._create_unverified_context() if self.insecure else None
+
         try:
             req = Request(url, headers={'User-Agent': 'Mozilla/5.0 (AirJack Vendor Updater)'})
-            with urlopen(req, timeout=30) as response:
+            with urlopen(req, timeout=30, context=ctx) as response:
                 content = response.read().decode('utf-8', errors='ignore')
                 self.log(f"Successfully fetched {source_name} ({len(content)} bytes)")
                 return content
+        except ssl.SSLError as e:
+            if not self.insecure:
+                print(f"[!] SSL error fetching {source_name}: {e}", file=sys.stderr)
+                print(f"[!] Try running with -k/--insecure to skip certificate verification", file=sys.stderr)
+            else:
+                print(f"[!] SSL error fetching {source_name}: {e}", file=sys.stderr)
+            return None
         except (URLError, HTTPError) as e:
-            print(f"[!] Error fetching {source_name}: {e}", file=sys.stderr)
+            if not self.insecure and 'CERTIFICATE' in str(e).upper():
+                print(f"[!] SSL certificate error fetching {source_name}: {e}", file=sys.stderr)
+                print(f"[!] Try running with -k/--insecure to skip certificate verification", file=sys.stderr)
+            else:
+                print(f"[!] Error fetching {source_name}: {e}", file=sys.stderr)
             return None
         except Exception as e:
             print(f"[!] Unexpected error fetching {source_name}: {e}", file=sys.stderr)
@@ -298,10 +313,13 @@ Examples:
     parser.add_argument('-v', '--verbose',
                         action='store_true',
                         help='Enable verbose output')
+    parser.add_argument('-k', '--insecure',
+                        action='store_true',
+                        help='Skip SSL certificate verification (useful behind proxies with self-signed certs)')
 
     args = parser.parse_args()
 
-    updater = VendorUpdater(args.config, args.output, args.verbose)
+    updater = VendorUpdater(args.config, args.output, args.verbose, args.insecure)
     updater.run()
 
 
