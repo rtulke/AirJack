@@ -162,6 +162,24 @@ def enable_wifi(interface):
         return False
 
 
+def restart_airportd(interface: str = DEFAULT_INTERFACE) -> bool:
+    """Restart the WiFi daemon to clear stuck RFMON/association state.
+
+    After monitor-mode capture, airportd can get stuck in a state where
+    networksetup and CoreWLAN both fail with -3900.  Restarting the daemon
+    clears that state.  Requires root (called from sudo context).
+    """
+    print("[*] Restarting WiFi daemon (airportd) to clear stuck state...")
+    _, _, code = run_command("killall airportd", check=False)
+    if code not in (0, 1):   # 1 = no process found, still OK
+        print(f"[!] killall airportd returned {code}")
+    time.sleep(4)             # give launchd time to respawn airportd
+    run_command(f"networksetup -setairportpower {interface} on", check=False)
+    time.sleep(3)
+    print("[+] airportd restarted")
+    return True
+
+
 def get_preferred_networks(interface: str = DEFAULT_INTERFACE):
     """Return the ordered list of preferred Wi-Fi networks for *interface*."""
     stdout, _, _ = run_command(f"networksetup -listpreferredwirelessnetworks {interface}")
@@ -176,17 +194,21 @@ def get_preferred_networks(interface: str = DEFAULT_INTERFACE):
 
 
 def is_network_in_range(interface, ssid):
-    """Check if SSID is in range using airport"""
+    """Check if SSID is in range using airport.
+
+    Returns True (confirmed in range), False (confirmed not in range),
+    or None (scan failed / cannot determine — do not block connection attempts).
+    """
     if not Path(AIRPORT_PATH).exists():
-        return None  # Cannot determine
-    
-    # Suppress deprecation warning with 2>/dev/null
+        return None
+
     stdout, _, code = run_command(f"{AIRPORT_PATH} -s 2>/dev/null", check=False)
-    
-    if code == 0 and ssid in stdout:
-        return True
-    
-    return False
+
+    if code != 0 or not stdout.strip():
+        # airport itself failed (interface busy, etc.) — unknown, not "absent"
+        return None
+
+    return True if ssid in stdout else False
 
 
 def scan_networks(interface):
@@ -266,7 +288,9 @@ def scan_networks(interface):
                         continue
                     if not line.strip():
                         continue
-                    print(f"    {line}" if i <= 20 else "", end="")
+                    if i > 20:
+                        continue
+                    print(f"    {line}")
                     parts = line.split()
                     if len(parts) >= 4:
                         # Approximate: SSID is first token if no spaces; RSSI and channel near the end
@@ -516,16 +540,27 @@ def main():
                 print(f"[!] Network {ssid} not found in range")
                 print("[*] Scanning for available networks...")
                 scan_networks(interface)
-                return
+                print(f"[*] Attempting connection to {ssid} anyway...")
+                # fall through to connect_to_network below
         
         if connect_to_network(interface):
             print("[*] Waiting for connection to establish...")
             time.sleep(8)
             check_connection(interface)
         else:
-            print("\n[*] Connection failed. Manual steps:")
-            print(f"    1. Remove saved network: sudo security delete-generic-password -l '{preferred[0] if preferred else 'SSID'}'")
-            print(f"    2. Reconnect: sudo ./connect.py -s \"SSID\" -p \"PASSWORD\"")
+            # First connection attempt failed — restart airportd and retry once.
+            # After RFMON capture the daemon can be stuck in a state where every
+            # networksetup/CoreWLAN call returns -3900 until it's restarted.
+            restart_airportd(interface)
+            ssid_to_try = preferred[0] if preferred else None
+            if connect_to_network(interface, ssid=ssid_to_try):
+                print("[*] Waiting for connection to establish...")
+                time.sleep(8)
+                check_connection(interface)
+            else:
+                print("\n[*] Connection failed. Manual steps:")
+                print(f"    1. Remove saved network: sudo security delete-generic-password -l '{preferred[0] if preferred else 'SSID'}'")
+                print(f"    2. Reconnect: sudo ./connect.py -s \"SSID\" -p \"PASSWORD\"")
         return
     
     # Interface is in monitor mode - full recovery needed

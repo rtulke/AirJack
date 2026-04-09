@@ -892,11 +892,29 @@ class WiFiCracker:
                 self.log.warning(f"Reconnect attempt {attempt + 1} exception: {e}")
                 continue
 
-        # All CoreWLAN attempts failed — networksetup fallback.
-        # This works even when CoreWLAN reports -3900 because it talks to the
-        # Wi-Fi daemon directly rather than using the CoreWLAN API.
-        self.log.warning("CoreWLAN reconnect failed; trying networksetup fallback...")
+        # All CoreWLAN attempts failed.
+        # Persistent -3900 errors mean the interface is still in RFMON or stuck
+        # in a transitional state.  Power-cycle WiFi to force it back to managed
+        # mode before trying to associate.
         iface = self.resolve_interface() or "en0"
+        self.log.info("Attempting automatic monitor-mode exit via WiFi power cycle...")
+        try:
+            # Remove the monitor-mode mediaopt flag (harmless if not set; needs root)
+            subprocess.run(["ifconfig", iface, "-mediaopt", "monitor"],
+                           capture_output=True, timeout=5)
+            subprocess.run(["networksetup", "-setairportpower", iface, "off"],
+                           capture_output=True, timeout=10)
+            sleep(2)
+            subprocess.run(["networksetup", "-setairportpower", iface, "on"],
+                           capture_output=True, timeout=10)
+            sleep(3)
+            self.log.info("WiFi power cycle complete — retrying connection...")
+        except Exception as e:
+            self.log.warning(f"Power cycle failed: {e}")
+
+        # networksetup fallback — talks to the Wi-Fi daemon directly, bypasses
+        # CoreWLAN's -3900 state.
+        self.log.warning("Trying networksetup to associate...")
         try:
             result = subprocess.run(
                 ["networksetup", "-setairportnetwork", iface, ssid],
@@ -908,6 +926,29 @@ class WiFiCracker:
             self.log.warning(f"networksetup failed: {result.stdout or result.stderr}")
         except Exception as e:
             self.log.warning(f"networksetup fallback exception: {e}")
+
+        # Last resort: restart airportd.  After RFMON the WiFi daemon can get
+        # stuck in a state where even airport/networksetup can't scan or
+        # associate — restarting it clears that state completely.
+        # sudo -n uses the credential cache from the earlier sudo -v call.
+        self.log.info("Restarting WiFi daemon (airportd) to clear RFMON state...")
+        try:
+            subprocess.run(["sudo", "-n", "killall", "airportd"],
+                           capture_output=True, timeout=5)
+            sleep(4)  # airportd takes a moment to restart
+            subprocess.run(["networksetup", "-setairportpower", iface, "on"],
+                           capture_output=True, timeout=10)
+            sleep(3)
+            result = subprocess.run(
+                ["networksetup", "-setairportnetwork", iface, ssid],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0 and "Failed" not in result.stdout:
+                self.log.info(f"Reconnected to '{ssid}' after daemon restart")
+                return True
+            self.log.warning(f"Post-restart connect failed: {result.stdout or result.stderr}")
+        except Exception as e:
+            self.log.warning(f"airportd restart failed: {e}")
 
         self.log.warning(f"Could not reconnect to '{ssid}'. Please reconnect manually.")
         self.log.warning(f"  sudo networksetup -setairportnetwork {iface} \"{ssid}\"")
@@ -1239,6 +1280,13 @@ class WiFiCracker:
             except Exception:
                 channel_number = None
 
+            # On macOS, CoreWLAN already set the channel before this subprocess
+            # starts (see setWLANChannel_error_() call above).  Passing -c to
+            # the capture tool triggers its own channel-setting logic which
+            # calls networksetup / airport — both removed / broken on macOS 15+.
+            # Skip -c on macOS; the interface is already on the right channel.
+            pass_channel = channel_number and platform.system() != 'Darwin'
+
             if self.capture_tool == 'zizzania':
                 cmd = [
                     'sudo', self.capture_path,
@@ -1246,7 +1294,7 @@ class WiFiCracker:
                     '-b', bssid,
                     '-w', self.capture_file,
                 ]
-                if channel_number:
+                if pass_channel:
                     cmd.extend(['-c', str(channel_number)])
                 if not self.args.deauth:
                     cmd.append('-n')  # passive mode -> no deauth
@@ -1259,7 +1307,7 @@ class WiFiCracker:
                     '-b', bssid,
                     '-w', self.capture_file,
                 ]
-                if channel_number:
+                if pass_channel:
                     cmd.extend(['-c', str(channel_number)])
                 if not self.args.deauth:
                     cmd.append('-n')
