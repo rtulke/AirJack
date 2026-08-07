@@ -64,6 +64,7 @@ BASE_DIR = dirname(abspath(__file__))
 try:
     import CoreWLAN
     import CoreLocation
+    from Foundation import NSObject, NSRunLoop, NSDate
     from prettytable import PrettyTable
     from pyfiglet import Figlet
 except ImportError as e:
@@ -88,6 +89,22 @@ except ImportError as e:
         print("  pip3 install prettytable pyfiglet")
 
     sys.exit(1)
+
+
+class _AirJackLocationDelegate(NSObject):
+    """Minimal CLLocationManager delegate.
+
+    CoreLocation only surfaces the permission prompt and registers the process
+    in the Location Services list when a delegate is set *and* the owning
+    thread's run loop is being serviced. The callback body can stay empty — its
+    mere presence, combined with a running run loop (see
+    request_location_permission), is what lets macOS present the prompt and
+    create the Location Services entry. Without this, requestWhenInUse...
+    returns silently and nothing ever appears (issue #11).
+    """
+
+    def locationManagerDidChangeAuthorization_(self, manager):
+        pass
 
 
 # --- macOS 15+ Virtual Environment Warning ---
@@ -672,8 +689,23 @@ class WiFiCracker:
         Returns:
             bool: True if authorized, False otherwise
         """
-        # Initialize CoreLocation
+        # macOS never shows the Location Services prompt to a root process, and
+        # a sudo run is attributed to root rather than the terminal app — so no
+        # entry is created. The main process must run unprivileged; AirJack
+        # elevates only the capture backend later.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.log.warning("Running as root (sudo): macOS will not present the Location "
+                             "Services prompt for a root process, so no entry is created.")
+            self.log.warning("Run AirJack WITHOUT sudo — it requests elevation only for the "
+                             "capture backend when it is actually needed.")
+
+        # Initialize CoreLocation. A delegate must be set and the run loop must
+        # be serviced (see the wait loop below) or the prompt never appears and
+        # no Location Services entry is created (issue #11). Keep a strong
+        # reference to the delegate so it is not garbage-collected mid-request.
         location_manager = CoreLocation.CLLocationManager.alloc().init()
+        self._location_delegate = _AirJackLocationDelegate.alloc().init()
+        location_manager.setDelegate_(self._location_delegate)
 
         # Check if location services are enabled
         if not location_manager.locationServicesEnabled():
@@ -788,7 +820,13 @@ class WiFiCracker:
                     self.log.error(f"Final authorization status: {authorization_status}")
                 return False
 
-            sleep(1)
+            # Service the run loop for ~1s instead of a blind sleep(). This is
+            # what lets CoreLocation present the prompt and deliver the delegate
+            # callback; a plain sleep() would starve the run loop and the prompt
+            # would never appear (issue #11).
+            NSRunLoop.currentRunLoop().runUntilDate_(
+                NSDate.dateWithTimeIntervalSinceNow_(1.0)
+            )
             if i % 5 == 0 and i > 0:
                 self.log.info(f"Waiting for authorization... ({i}/{max_wait}s)")
 
