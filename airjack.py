@@ -1348,15 +1348,16 @@ class WiFiCracker:
                 if pass_channel:
                     cmd.extend(['-c', str(channel_number)])
                 if not self.args.deauth:
+                    # Passive mode: pass ONLY -n. AirSnare treats -n together with
+                    # any CLI deauth option (-d/-a/-t) as contradictory and exits.
+                    # Its conflict check keys on whether those flags appear on the
+                    # command line, not on the resulting state, so config-file
+                    # deauth values are ignored under -n and never trigger it.
+                    # (Older AirSnare keyed on state, so we used to pass the
+                    # defaults explicitly to override ~/.airsnarerc. That
+                    # workaround now causes the very conflict it once avoided —
+                    # see issue #12.)
                     cmd.append('-n')
-                    # AirSnare loads ~/.airsnarerc before CLI args. If it sets
-                    # deauth_count/attempts/interval to non-default values, the
-                    # conflict check ("Options -d, -a, -t conflict with -n") fires
-                    # even though we passed -n. Passing the exact default values
-                    # via CLI overrides the config and satisfies the check.
-                    # Defaults: ZZ_DEFAULT_N_DEAUTHS=1, ZZ_DEFAULT_KILLER_ATTEMPTS=10,
-                    #           ZZ_DEFAULT_KILLER_INTERVAL=5  (handler.h)
-                    cmd.extend(['-d', '1', '-a', '10', '-t', '5'])
                 # AirSnare default log level is ERROR (0); -v raises it to INFO (1)
                 # which is required to see "New client" and "^_^ Full handshake" events.
                 # With AirJack verbose, add -vvv to also see deauth debug messages.
