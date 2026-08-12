@@ -1,0 +1,24 @@
+# AirJack custom vendor overrides / additions
+#
+# Simple "PREFIX Vendor" format (Nmap style), one entry per line.
+# PREFIX is a 24-bit OUI; separators are ignored. Lines starting with # are
+# comments. This file is merged by getvendors.py (see vendor-sources.conf) and
+# survives regeneration of oui-vendors.json.
+#
+# Entries below are community-known assignments that IEEE registers privately
+# (no public organization name), carried over from the retired vendor_oui.json
+# so airdetect.py keeps resolving them instead of showing "Unknown".
+
+40:16:7F Asus
+30:3C:B1 Apple
+14:E1:3A Huawei
+A4:C1:61 Huawei
+6C:96:D7 Xiaomi
+44:D6:E8 Samsung
+80:79:10 Samsung
+C0:71:FE Samsung
+CC:D9:2A Samsung
+1C:3D:19 Canon
+D4:F0:45 Canon
+04:E8:50 Epson
+5C:E6:6B Ricoh

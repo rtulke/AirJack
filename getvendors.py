@@ -95,6 +95,29 @@ class VendorUpdater:
         # Capitalize properly
         return name.strip()
 
+    def is_local_source(self, url: str) -> bool:
+        """True if the source points at a local file rather than a URL."""
+        return url.startswith('file:') or '://' not in url
+
+    def read_local_file(self, url: str, source_name: str) -> str:
+        """Read a local source file.
+
+        A ``file:`` scheme is honored; a bare relative path is resolved against
+        the directory of the config file so custom lists live next to it.
+        """
+        path = url[7:] if url.startswith('file://') else url[5:] if url.startswith('file:') else url
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.abspath(self.config_file)), path)
+        self.log(f"Reading {source_name} from local file {path}")
+        try:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            self.log(f"Successfully read {source_name} ({len(content)} bytes)")
+            return content
+        except OSError as e:
+            print(f"[!] Error reading {source_name} ({path}): {e}", file=sys.stderr)
+            return None
+
     def fetch_url(self, url: str, source_name: str) -> str:
         """Fetch content from URL with error handling."""
         self.log(f"Fetching {source_name} from {url}")
@@ -283,7 +306,10 @@ class VendorUpdater:
 
             self.log(f"Processing source: {source_name}")
 
-            content = self.fetch_url(url, source_name)
+            if self.is_local_source(url):
+                content = self.read_local_file(url, source_name)
+            else:
+                content = self.fetch_url(url, source_name)
             if not content:
                 continue
 
@@ -299,7 +325,8 @@ class VendorUpdater:
                 else:
                     bits = 24
                 self.parse_ieee_csv(content, source_name, bits)
-            elif 'nmap' in url or 'mac-prefixes' in source_name.lower():
+            elif 'nmap' in url or 'mac-prefixes' in source_name.lower() or 'custom' in source_name.lower():
+                # Local custom overrides use the simple "PREFIX Vendor" Nmap format.
                 self.parse_nmap_format(content, source_name)
             elif 'wireshark' in url or 'manuf' in source_name.lower():
                 self.parse_wireshark_manuf(content, source_name)

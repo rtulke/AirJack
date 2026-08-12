@@ -139,18 +139,6 @@ def load_vendor_oui() -> Tuple[Dict[str, str], Dict[str, str]]:
         except Exception as e:
             print(f"[!] Warning: Could not load oui-vendors.json: {e}", file=sys.stderr)
 
-    # Fallback to old vendor_oui.json format if new file not found
-    if not vendor_db:
-        old_json_path = os.path.join(os.path.dirname(__file__), 'vendor_oui.json')
-        if os.path.exists(old_json_path):
-            try:
-                import json
-                with open(old_json_path, 'r') as f:
-                    data = json.load(f)
-                    vendor_db = data.get('vendors', {})
-            except Exception as e:
-                print(f"[!] Warning: Could not load vendor_oui.json: {e}", file=sys.stderr)
-
     # Fallback to minimal built-in database if no file found
     if not vendor_db:
         vendor_db = {
