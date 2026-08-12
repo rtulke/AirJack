@@ -682,7 +682,29 @@ class WiFiCracker:
         # Last resort
         self.resolved_interface = "en0"
         return self.resolved_interface
-    
+
+    def _bssid_available(self) -> bool:
+        """Test-scan and report whether real BSSIDs are actually visible.
+
+        On macOS 15+ (Sequoia) the authorization status can report "authorized"
+        (3/4) while CoreWLAN still returns networks with ``bssid() == None``,
+        because the process is not effectively granted Location access. The
+        status code alone is therefore not a reliable signal — an actual scan
+        that yields at least one non-None BSSID is (issue #11).
+        """
+        test_results, test_error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
+        if test_error is not None:
+            self.log.debug(f"BSSID verification scan error: {test_error}")
+        if not test_results:
+            self.log.debug("BSSID verification scan returned no networks.")
+            return False
+        for net in test_results:
+            if net.bssid() is not None:
+                return True
+        self.log.debug(f"BSSID verification scan returned {len(test_results)} "
+                       "network(s) but every bssid() was None.")
+        return False
+
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
 
@@ -717,15 +739,31 @@ class WiFiCracker:
         current_status = location_manager.authorizationStatus()
         self.log.debug(f"Current authorization status: {current_status}")
 
+        # Track whether macOS already reports us as authorized. If so we skip
+        # the (no-op) prompt request but still fall through to the wait loop,
+        # which re-verifies BSSID access with the run loop serviced.
+        already_authorized = False
+
         # Handle None case early (can happen on some macOS versions)
         if current_status is None:
             self.log.warning("Unable to determine current authorization status (returned None)")
             self.log.warning("This may indicate a macOS system issue. Proceeding with authorization request...")
             # Don't return False here, continue with the request
         elif current_status in [3, 4]:  # 3 = always, 4 = when in use
-            # If already authorized, return immediately
-            self.log.info("Already authorized for location services.")
-            return True
+            # Status says authorized — but on macOS 15+ that is NOT sufficient:
+            # BSSIDs can still come back as None. Verify with a real scan and be
+            # explicit in the log so issue #11 reports are diagnosable, instead
+            # of returning True blindly.
+            already_authorized = True
+            self.log.info(f"Location Services report authorized (status {current_status}); "
+                          "verifying BSSID access...")
+            if self._bssid_available():
+                self.log.info("BSSID access confirmed, continuing...")
+                return True
+            self.log.warning(f"Status reports authorized ({current_status}) but no BSSIDs are "
+                             "visible yet — networks would show 'BSSID: None'.")
+            self.log.warning("This is the known macOS 15+ CoreLocation/CoreWLAN limitation "
+                             "(issue #11). Re-verifying with a serviced run loop before giving up...")
         elif current_status == 2:  # denied
             # If denied, inform user
             self.log.error("Location services access was previously denied.")
@@ -736,13 +774,16 @@ class WiFiCracker:
             self.log.error("Location services access is restricted (possibly by parental controls).")
             return False
 
-        # Request authorization for location services
-        self.log.info("Requesting authorization for location services (required for WiFi scanning)...")
-        self.log.info("A permission popup should appear. If it doesn't appear within 10 seconds:")
-        self.log.info("1. Check System Settings > Privacy & Security > Location Services")
-        self.log.info("2. Look for your terminal app and ensure it's enabled")
-        self.log.info("3. On macOS 15+, you may need to manually add your terminal app to Location Services")
-        location_manager.requestWhenInUseAuthorization()
+        # Request authorization for location services. Skip the prompt when
+        # macOS already reports us as authorized (it would be a no-op) — in that
+        # case we only need the wait loop below to re-verify BSSID availability.
+        if not already_authorized:
+            self.log.info("Requesting authorization for location services (required for WiFi scanning)...")
+            self.log.info("A permission popup should appear. If it doesn't appear within 10 seconds:")
+            self.log.info("1. Check System Settings > Privacy & Security > Location Services")
+            self.log.info("2. Look for your terminal app and ensure it's enabled")
+            self.log.info("3. On macOS 15+, you may need to manually add your terminal app to Location Services")
+            location_manager.requestWhenInUseAuthorization()
 
         # Wait for location services to be authorized
         max_wait = self.args.auth_timeout if self.args.auth_timeout is not None else 60
@@ -765,27 +806,15 @@ class WiFiCracker:
 
             # 0 = not determined, 1 = restricted, 2 = denied, 3 = authorized always, 4 = authorized when in use
             if authorization_status in [3, 4]:
-                # macOS sometimes reports status 3 or 4 even when permission wasn't really granted
-                # Verify by attempting to scan and check if we get real BSSIDs
+                # macOS sometimes reports status 3 or 4 even when permission
+                # wasn't really granted — verify by checking for real BSSIDs.
                 self.log.debug("Status reports authorized, verifying with actual scan...")
-                test_results, test_error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
-                if test_results and len(test_results) > 0:
-                    # Check if we get real BSSIDs
-                    has_real_bssid = False
-                    for net in test_results:
-                        if net.bssid() is not None:
-                            has_real_bssid = True
-                            break
-
-                    if has_real_bssid:
-                        self.log.info("Received authorization, continuing...")
-                        return True
-                    else:
-                        self.log.warning(f"Status shows {authorization_status} but no BSSIDs available")
-                        self.log.warning("Location Services permission may not be properly granted")
-                        # Continue waiting
-                else:
-                    self.log.debug("Test scan returned no networks, continuing to wait...")
+                if self._bssid_available():
+                    self.log.info("Received authorization, continuing...")
+                    return True
+                self.log.warning(f"Status shows {authorization_status} but no BSSIDs available")
+                self.log.warning("Location Services permission may not be properly granted")
+                # Continue waiting
 
 
             # Check if denied during wait
