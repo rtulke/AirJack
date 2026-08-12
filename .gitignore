@@ -11,4 +11,6 @@ venv/
 __pycache__/
 *.pyc
 CLAUDE
+CLAUDE.md
+.claude/
 TODO.md
