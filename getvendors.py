@@ -32,7 +32,8 @@ class VendorUpdater:
         self.output_file = output_file
         self.verbose = verbose
         self.insecure = insecure
-        self.vendors: Dict[str, str] = {}  # OUI -> Vendor name
+        self.vendors: Dict[str, str] = {}   # 24-bit OUI (XX:XX:XX) -> Vendor name
+        self.prefixes: Dict[str, str] = {}  # 28/36-bit sub-block (hex nibbles) -> Vendor name
         self.sources_processed: Set[str] = set()
 
     def log(self, message: str):
@@ -40,19 +41,45 @@ class VendorUpdater:
         if self.verbose:
             print(f"[*] {message}")
 
-    def normalize_oui(self, oui: str) -> str:
-        """Normalize OUI to format XX:XX:XX (uppercase, colon-separated)."""
-        # Remove all non-hex characters
-        oui_clean = re.sub(r'[^0-9A-Fa-f]', '', oui)
+    def normalize_nibbles(self, prefix: str, bits: int) -> str:
+        """Return the first `bits`-worth of hex nibbles (uppercase) of a prefix.
 
-        # Take first 6 hex digits (24-bit OUI)
-        if len(oui_clean) < 6:
+        `bits` must be one of 24/28/36 (the IEEE registration granularities).
+        Returns None if the prefix does not carry enough hex digits.
+        """
+        clean = re.sub(r'[^0-9A-Fa-f]', '', prefix).upper()
+        nibbles = bits // 4  # 24->6, 28->7, 36->9
+        if len(clean) < nibbles:
             return None
+        return clean[:nibbles]
 
-        oui_clean = oui_clean[:6].upper()
+    def normalize_oui(self, oui: str) -> str:
+        """Normalize a 24-bit OUI to XX:XX:XX (uppercase, colon-separated)."""
+        nibbles = self.normalize_nibbles(oui, 24)
+        if not nibbles:
+            return None
+        return f"{nibbles[0:2]}:{nibbles[2:4]}:{nibbles[4:6]}"
 
-        # Format as XX:XX:XX
-        return f"{oui_clean[0:2]}:{oui_clean[2:4]}:{oui_clean[4:6]}"
+    def store_entry(self, nibbles: str, vendor: str) -> bool:
+        """Store a vendor keyed by a hex-nibble prefix.
+
+        6 nibbles (24-bit) go into self.vendors under the colon form XX:XX:XX;
+        7/9 nibbles (28/36-bit sub-blocks) go into self.prefixes keyed by the
+        raw nibble string (its length encodes the mask). On collision the
+        longer, more descriptive vendor name wins.
+        """
+        if not nibbles:
+            return False
+        if len(nibbles) == 6:
+            key = f"{nibbles[0:2]}:{nibbles[2:4]}:{nibbles[4:6]}"
+            table = self.vendors
+        else:
+            key = nibbles
+            table = self.prefixes
+        if key not in table or len(vendor) > len(table[key]):
+            table[key] = vendor
+            return True
+        return False
 
     def clean_vendor_name(self, name: str) -> str:
         """Clean and normalize vendor name."""
@@ -98,12 +125,19 @@ class VendorUpdater:
             print(f"[!] Unexpected error fetching {source_name}: {e}", file=sys.stderr)
             return None
 
-    def parse_ieee_csv(self, content: str, source_name: str):
-        """Parse IEEE CSV format (oui.csv, mam.csv, oui36.csv, iab.csv)."""
+    def parse_ieee_csv(self, content: str, source_name: str, bits: int = 24):
+        """Parse IEEE CSV format.
+
+        `bits` is the registration granularity of the file: 24 for oui.csv
+        (MA-L), 28 for mam.csv (MA-M), 36 for oui36.csv (MA-S) and iab.csv.
+        The Assignment column carries exactly that many hex digits, so keeping
+        the full prefix (instead of truncating to 24 bit) lets distinct
+        sub-block owners coexist instead of colliding on a shared 24-bit OUI.
+        """
         if not content:
             return
 
-        self.log(f"Parsing IEEE CSV: {source_name}")
+        self.log(f"Parsing IEEE CSV: {source_name} ({bits}-bit)")
         count = 0
 
         lines = content.strip().split('\n')
@@ -119,15 +153,13 @@ class VendorUpdater:
             oui_raw = row[1].strip() if len(row) > 1 else row[0].strip()
             vendor_raw = row[2].strip() if len(row) > 2 else "Unknown"
 
-            oui = self.normalize_oui(oui_raw)
-            if not oui:
+            nibbles = self.normalize_nibbles(oui_raw, bits)
+            if not nibbles:
                 continue
 
             vendor = self.clean_vendor_name(vendor_raw)
 
-            # Only add if not exists or is better quality
-            if oui not in self.vendors or len(vendor) > len(self.vendors[oui]):
-                self.vendors[oui] = vendor
+            if self.store_entry(nibbles, vendor):
                 count += 1
 
         self.log(f"Added {count} entries from {source_name}")
@@ -155,26 +187,31 @@ class VendorUpdater:
 
             oui_raw, vendor_raw = parts[0], parts[1]
 
-            oui = self.normalize_oui(oui_raw)
-            if not oui:
+            nibbles = self.normalize_nibbles(oui_raw, 24)
+            if not nibbles:
                 continue
 
             vendor = self.clean_vendor_name(vendor_raw)
 
-            if oui not in self.vendors or len(vendor) > len(self.vendors[oui]):
-                self.vendors[oui] = vendor
+            if self.store_entry(nibbles, vendor):
                 count += 1
 
         self.log(f"Added {count} entries from {source_name}")
         self.sources_processed.add(source_name)
 
     def parse_wireshark_manuf(self, content: str, source_name: str):
-        """Parse Wireshark manuf format."""
+        """Parse Wireshark manuf format.
+
+        Handles the sub-block mask suffix (e.g. ``00:1B:C5:00:00/36``). Only the
+        IEEE granularities 24/28/36 bit are kept; prefixes with any other mask
+        are skipped so the lookup stays a clean longest-prefix match.
+        """
         if not content:
             return
 
         self.log(f"Parsing Wireshark manuf format: {source_name}")
         count = 0
+        skipped_mask = 0
 
         for line in content.strip().split('\n'):
             line = line.strip()
@@ -183,26 +220,41 @@ class VendorUpdater:
             if not line or line.startswith('#'):
                 continue
 
-            # Format: AA:BB:CC<tab>ShortName<tab>LongName
-            # or:     AA:BB:CC<tab>VendorName
+            # Format: PREFIX[/MASK]<tab>ShortName[<tab>LongName]
             parts = line.split('\t')
             if len(parts) < 2:
                 continue
 
-            oui_raw = parts[0].strip()
+            prefix_raw = parts[0].strip()
+
+            # Extract the mask; entries without one are 24-bit OUIs.
+            if '/' in prefix_raw:
+                addr, mask_raw = prefix_raw.split('/', 1)
+                try:
+                    bits = int(mask_raw.strip())
+                except ValueError:
+                    continue
+            else:
+                addr, bits = prefix_raw, 24
+
+            if bits not in (24, 28, 36):
+                skipped_mask += 1
+                continue
+
             # Prefer long name if available, otherwise short name
             vendor_raw = parts[2].strip() if len(parts) > 2 and parts[2].strip() else parts[1].strip()
 
-            oui = self.normalize_oui(oui_raw)
-            if not oui:
+            nibbles = self.normalize_nibbles(addr, bits)
+            if not nibbles:
                 continue
 
             vendor = self.clean_vendor_name(vendor_raw)
 
-            if oui not in self.vendors or len(vendor) > len(self.vendors[oui]):
-                self.vendors[oui] = vendor
+            if self.store_entry(nibbles, vendor):
                 count += 1
 
+        if skipped_mask:
+            self.log(f"Skipped {skipped_mask} entries with non-24/28/36-bit masks")
         self.log(f"Added {count} entries from {source_name}")
         self.sources_processed.add(source_name)
 
@@ -237,7 +289,16 @@ class VendorUpdater:
 
             # Detect format and parse accordingly
             if 'ieee.org' in url and url.endswith('.csv'):
-                self.parse_ieee_csv(content, source_name)
+                # Registration granularity is implied by the IEEE file:
+                # oui.csv=24 (MA-L), mam.csv/oui28=28 (MA-M), oui36/iab=36 (MA-S/IAB).
+                low = url.lower()
+                if 'oui36' in low or '/iab/' in low or 'iab.csv' in low:
+                    bits = 36
+                elif 'oui28' in low or 'mam' in low:
+                    bits = 28
+                else:
+                    bits = 24
+                self.parse_ieee_csv(content, source_name, bits)
             elif 'nmap' in url or 'mac-prefixes' in source_name.lower():
                 self.parse_nmap_format(content, source_name)
             elif 'wireshark' in url or 'manuf' in source_name.lower():
@@ -253,26 +314,35 @@ class VendorUpdater:
 
     def save_database(self):
         """Save merged vendor database to JSON file."""
-        self.log(f"Saving {len(self.vendors)} vendors to {self.output_file}")
+        total = len(self.vendors) + len(self.prefixes)
+        self.log(f"Saving {total} vendors "
+                 f"({len(self.vendors)} 24-bit, {len(self.prefixes)} sub-block) "
+                 f"to {self.output_file}")
 
         # Create metadata
         metadata = {
             "_metadata": {
                 "generated": datetime.now().isoformat(),
-                "total_entries": len(self.vendors),
+                "total_entries": total,
+                "oui24_entries": len(self.vendors),
+                "sub_block_entries": len(self.prefixes),
                 "sources": list(self.sources_processed),
-                "format": "OUI -> Vendor Name (XX:XX:XX format)"
+                "format": ("24-bit OUIs at top level as 'XX:XX:XX' -> Vendor; "
+                           "28/36-bit sub-blocks under '_prefixes' keyed by hex "
+                           "nibbles (length encodes the mask)")
             }
         }
 
-        # Merge metadata with vendors
+        # Merge metadata with 24-bit vendors; sub-blocks live under _prefixes.
         output_data = {**metadata, **self.vendors}
+        output_data["_prefixes"] = dict(sorted(self.prefixes.items()))
 
         # Write JSON with nice formatting
         with open(self.output_file, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False, sort_keys=True)
 
-        print(f"[+] Successfully saved {len(self.vendors)} vendors to {self.output_file}")
+        print(f"[+] Successfully saved {total} vendors "
+              f"({len(self.vendors)} 24-bit + {len(self.prefixes)} sub-block) to {self.output_file}")
         print(f"[+] Sources processed: {', '.join(self.sources_processed)}")
 
     def run(self):
@@ -284,7 +354,7 @@ class VendorUpdater:
 
         self.process_sources()
 
-        if not self.vendors:
+        if not self.vendors and not self.prefixes:
             print("[!] No vendors found from any source", file=sys.stderr)
             sys.exit(1)
 
