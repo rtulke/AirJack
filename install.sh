@@ -29,6 +29,27 @@ get_command_path() {
     command -v "$1"
 }
 
+# Determine the Python interpreter the 'airjack' launcher will actually use.
+# Mirrors airjack's own logic: system Python on macOS 15+ (required for
+# Location Services), otherwise the default python3 on PATH.
+get_target_python() {
+    local macos_major
+    macos_major=$(sw_vers -productVersion | cut -d. -f1)
+    if [ "$macos_major" -ge 15 ] && command -v /usr/bin/python3 &> /dev/null; then
+        echo "/usr/bin/python3"
+    else
+        echo "python3"
+    fi
+}
+
+# Install one or more pip packages for the given interpreter, tolerating
+# PEP 668 "externally managed" environments.
+pip_install_for() {
+    local py=$1; shift
+    "$py" -m pip install --user "$@" \
+        || "$py" -m pip install --user --break-system-packages "$@"
+}
+
 # Function to print colored messages
 print_message() {
     echo -e "${BLUE}==>${NC} $1"
@@ -221,53 +242,40 @@ clone_repo() {
 # Install Python dependencies
 install_python_deps() {
     if ask_continue "Install Python dependencies?"; then
-        print_message "Creating virtual environment..."
-        python3 -m venv "$TEMP_DIR/venv"
-        source "$TEMP_DIR/venv/bin/activate"
-        
-        print_message "Installing Python dependencies in virtual environment..."
+        local py; py=$(get_target_python)
+        print_message "Installing Python dependencies for $py ..."
+        # macOS 15+ breaks Location Services inside a virtualenv, so the launcher
+        # uses system Python; install the dependencies for that same interpreter.
         if [ -f "$TEMP_DIR/requirements.txt" ]; then
-            python3 -m pip install -r "$TEMP_DIR/requirements.txt"
-            print_success "Python dependencies installed."
+            pip_install_for "$py" -r "$TEMP_DIR/requirements.txt"
         else
             print_warning "requirements.txt not found. Installing manually..."
-            python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+            pip_install_for "$py" prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
         fi
-        
-        # Deactivate virtual environment
-        deactivate
+        print_success "Python dependencies installed for $py."
     fi
 }
 
 # Create configuration directory and install config file
 setup_config() {
     if ask_continue "Create configuration files?"; then
-        print_message "Creating configuration directory (administrator password required)..."
-        sudo mkdir -p "$CONFIG_DIR"
-        
-        # Create virtual environment in user home
-        VENV_PATH="$HOME/.airjack/venv"
-        print_message "Creating virtual environment in $VENV_PATH..."
-        mkdir -p "$(dirname "$VENV_PATH")"
-        python3 -m venv "$VENV_PATH"
-        source "$VENV_PATH/bin/activate"
-        python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
-        
-        # Use sudo to run the python script for system config
-        print_message "Creating default configuration file (administrator password may be required)..."
+        local py; py=$(get_target_python)
         cd "$TEMP_DIR"
-        # Make sure the script runs with the virtual environment's Python
-        sudo "$VENV_PATH/bin/python3" airjack.py -C "$CONFIG_DIR/airjack.conf"
-        
-        # Also create user config
-        if ask_continue "Create user-specific configuration?"; then
-            python3 airjack.py -C ~/.airjack.conf
-            print_success "User configuration created at ~/.airjack.conf"
+
+        # Generate the config as the normal user so the target interpreter's
+        # --user site-packages are visible (running under sudo would not see
+        # them). The system copy is then installed with a plain sudo cp.
+        print_message "Creating default user configuration at ~/.airjack.conf ..."
+        "$py" airjack.py -C "$HOME/.airjack.conf"
+        print_success "User configuration created at ~/.airjack.conf"
+
+        if ask_continue "Also install a system-wide config to $CONFIG_DIR?"; then
+            print_message "Installing system configuration (administrator password required)..."
+            sudo mkdir -p "$CONFIG_DIR"
+            sudo cp "$HOME/.airjack.conf" "$CONFIG_DIR/airjack.conf"
+            print_success "System configuration installed at $CONFIG_DIR/airjack.conf"
         fi
-        
-        # Deactivate virtual environment
-        deactivate
-        
+
         print_success "Configuration set up successfully."
     fi
 }
@@ -298,40 +306,24 @@ install_manpage() {
 # Install the main script
 install_script() {
     if ask_continue "Install AirJack script to $INSTALL_DIR?"; then
-        print_message "Installing AirJack script..."
+        print_message "Installing AirJack script and launcher..."
         sudo mkdir -p "$INSTALL_DIR"
-        
-        # Make sure the script is executable
-        chmod +x "$TEMP_DIR/airjack.py"
-        
-        # Create a launcher script without .py extension
-        cat > "$TEMP_DIR/airjack" << EOF
-#!/bin/bash
-# Check if we need to set up virtual environment
-VENV_PATH="\$HOME/.airjack/venv"
-if [ ! -d "\$VENV_PATH" ]; then
-    echo "Setting up virtual environment..."
-    mkdir -p "\$(dirname "\$VENV_PATH")"
-    python3 -m venv "\$VENV_PATH"
-    source "\$VENV_PATH/bin/activate"
-    python3 -m pip install prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
-    deactivate
-fi
 
-# Activate virtual environment and run script
-source "\$VENV_PATH/bin/activate"
-python3 $INSTALL_DIR/airjack.py "\$@"
-deactivate
-EOF
-        
-        # Make the launcher executable
-        chmod +x "$TEMP_DIR/airjack"
-        
-        # Install both scripts
+        chmod +x "$TEMP_DIR/airjack.py"
         sudo cp "$TEMP_DIR/airjack.py" "$INSTALL_DIR/"
-        sudo cp "$TEMP_DIR/airjack" "$INSTALL_DIR/"
-        
-        print_success "AirJack installed at $INSTALL_DIR/airjack"
+
+        # Install the launcher shipped with the repo. It selects system Python on
+        # macOS 15+ (required for Location Services) and falls back to python3
+        # otherwise - do NOT regenerate a venv-based launcher here, which would
+        # reintroduce the Location Services failure on macOS 15+.
+        if [ -f "$TEMP_DIR/airjack" ]; then
+            chmod +x "$TEMP_DIR/airjack"
+            sudo cp "$TEMP_DIR/airjack" "$INSTALL_DIR/"
+            print_success "AirJack installed at $INSTALL_DIR/airjack"
+        else
+            print_warning "Launcher 'airjack' not found in repo; installed airjack.py only."
+            print_message "Run it directly with: /usr/bin/python3 $INSTALL_DIR/airjack.py"
+        fi
     fi
 }
 
