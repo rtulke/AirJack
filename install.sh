@@ -17,7 +17,7 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/usr/local/etc/airjack"
 MAN_DIR="/usr/local/share/man/man1"
 TEMP_DIR=$(mktemp -d)
-REPO_URL="https://github.com/rtulke/airjack.git"
+REPO_URL="https://github.com/rtulke/AirJack.git"
 
 # Function to check if a command exists
 command_exists() {
@@ -416,7 +416,7 @@ uninstall() {
     echo ""
     
     if ask_continue "Remove AirJack script from $INSTALL_DIR?"; then
-        sudo rm -f "$INSTALL_DIR/airjack.py" "$INSTALL_DIR/AirJack"
+        sudo rm -f "$INSTALL_DIR/airjack.py" "$INSTALL_DIR/airjack"
         print_success "Removed AirJack scripts"
     fi
     
