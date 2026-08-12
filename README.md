@@ -1,10 +1,10 @@
 # AirJack
 
-AirJack scans nearby Wi‑Fi networks on macOS using CoreWLAN, helps you pick a target, and orchestrates [AirSnare](https://github.com/rtulke/airsnare) plus [hcxpcapngtool](https://github.com/ZerBea/hcxtools) to capture WPA/WPA2/WPA3 handshakes. It then converts the capture to [hashcat](https://hashcat.net/hashcat/) format and guides you through dictionary, brute‑force, or manual cracking workflows with optional cleanup for sensitive files.
+AirJack scans nearby Wi-Fi networks on macOS using CoreWLAN, helps you pick a target, and orchestrates [AirSnare](https://github.com/rtulke/airsnare) plus [hcxpcapngtool](https://github.com/ZerBea/hcxtools) to capture WPA/WPA2/WPA3 handshakes. It then converts the capture to [hashcat](https://hashcat.net/hashcat/) format and guides you through dictionary, brute-force, or manual cracking workflows with optional cleanup for sensitive files.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## ⚠️ Legal Disclaimer
+## Legal Disclaimer
 
 This tool is provided for **EDUCATIONAL PURPOSES ONLY**. Only use AirJack on networks you own or have explicit permission to test. Unauthorized access to computer networks is illegal and punishable by law.
 
@@ -204,7 +204,7 @@ verbose = false
 ./airjack -c /path/to/custom/config.conf
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -238,7 +238,7 @@ pip3 install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
 **Solutions:**
 
 **For "Already Denied" errors:**
-1. Open **System Settings** → **Privacy & Security** → **Location Services**
+1. Open **System Settings** -> **Privacy & Security** -> **Location Services**
 2. Find your terminal app (Terminal.app or iTerm2)
 3. Enable location services for it
 4. Restart AirJack
@@ -253,7 +253,7 @@ macOS 15 has significant changes to Location Services that affect Python scripts
 
 **Solution 1: Use the Launcher Script (Easiest)**
 ```bash
-./airjack  # ✅ Automatically uses system Python on macOS 15+
+./airjack  # Automatically uses system Python on macOS 15+
 ```
 
 The launcher script automatically detects your macOS version and uses the appropriate Python.
@@ -262,10 +262,10 @@ The launcher script automatically detects your macOS version and uses the approp
 ```bash
 # Instead of using venv Python:
 source venv/bin/activate
-python airjack.py  # ❌ Won't work - runs under terminal, no Location Services
+python airjack.py  # Won't work - runs under terminal, no Location Services
 
 # Use system Python directly:
-/usr/bin/python3 airjack.py  # ✅ Works - uses Python's Location Services permission
+/usr/bin/python3 airjack.py  # Works - uses Python's Location Services permission
 ```
 
 **Setup for System Python:**
@@ -334,12 +334,13 @@ tccutil reset LocationServices com.apple.Terminal
 
 **Problem:** "Permission denied" when running tools.
 
-**Solution:**
+**Important:** Do NOT run AirJack itself with `sudo`. macOS never shows the Location Services prompt to a root process, so a `sudo` run gets no BSSIDs (networks show `BSSID: None`) and no Location Services entry is created. Run AirJack as your normal user - it requests elevation only for the capture backend, and only when that step actually needs it.
+
 ```bash
-# AirJack needs sudo for packet capture
-sudo ./airjack
+# Run as your normal user (no sudo):
+./airjack
 # Or with Python directly:
-sudo /usr/bin/python3 airjack.py
+/usr/bin/python3 airjack.py
 ```
 
 Make sure external tools are executable:

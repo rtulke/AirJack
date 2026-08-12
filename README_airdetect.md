@@ -5,7 +5,7 @@ A passive Wi-Fi access point security scanner for analyzing WLAN security charac
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)
 
-## ⚠️ Legal Disclaimer
+## Legal Disclaimer
 
 This tool is provided for **EDUCATIONAL AND SECURITY RESEARCH PURPOSES ONLY**. Only use AirDetect on networks you own or have explicit permission to test. Unauthorized monitoring of wireless networks may be illegal in your jurisdiction.
 
@@ -34,8 +34,8 @@ This tool is provided for **EDUCATIONAL AND SECURITY RESEARCH PURPOSES ONLY**. O
   - Interactive AP selection with Enter key
   - Detailed per-AP popups: Statistics, Information, Signal Strength History
   - Visual signal strength graph with time-based tracking
-  - Keyboard navigation (↑/↓ arrows, Enter, ESC, h for help)
-- **Vendor Identification** - Comprehensive OUI database (2010-2025) with 1,366+ vendors
+  - Keyboard navigation (Up/Down arrows, Enter, ESC, h for help)
+- **Vendor Identification** - IEEE OUI database (58,000+ entries) with 28/36-bit sub-block resolution
 - **Colorized Output** - RSSI-based signal strength colors, security type highlighting
 - **PCAP Analysis** - Read and analyze existing capture files
 
@@ -53,15 +53,15 @@ dc:15:1b:7d:d4:58  -88dBm   53   5 GHz     hve-45591                 Unknown    
 ========================================================================================================================
 
 Total APs: 10
-  • WPS enabled: 1
-  • PMF required: 0
-  • WPA3: 1
-  • Hidden SSID: 0
+  - WPS enabled: 1
+  - PMF required: 0
+  - WPA3: 1
+  - Hidden SSID: 0
 ```
 
 **Color Coding:**
-- **RSSI**: 🟢 Green (>-60dBm), 🟡 Yellow (>-80dBm), 🔴 Red (≤-80dBm)
-- **Security**: 🟢 WPA3/OWE (most secure), 🔵 WPA2 (secure), 🟡 WPA (less secure), 🔴 WEP/Open (insecure)
+- **RSSI**: Green (>-60dBm), Yellow (>-80dBm), Red (<=-80dBm)
+- **Security**: WPA3/OWE (most secure), WPA2 (secure), WPA (less secure), WEP/Open (insecure)
 
 ## Requirements
 
@@ -154,8 +154,8 @@ pip install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
 
 4. **Verify vendor database exists:**
 ```bash
-# The vendor_oui.json file should be in the same directory as airdetect.py
-ls -lh vendor_oui.json
+# The oui-vendors.json file should be in the same directory as airdetect.py
+ls -lh oui-vendors.json
 ```
 
 ### System-Wide Installation (Optional)
@@ -166,7 +166,7 @@ sudo cp airdetect.py /usr/local/bin/airdetect
 sudo chmod +x /usr/local/bin/airdetect
 
 # Copy vendor database
-sudo cp vendor_oui.json /usr/local/bin/
+sudo cp oui-vendors.json /usr/local/bin/
 
 # Use from anywhere
 airdetect -h
@@ -211,18 +211,18 @@ sudo airmon-ng stop wlan0mon
 ```
 usage: airdetect.py [-h] [-i IFACE | -r READ | -l] [-t TIMEOUT] [--eapol] [--channel CHANNEL]
 
-Passive Wi‑Fi AP security analyzer (beacons/probe responses/optional EAPOL)
+Passive Wi-Fi AP security analyzer (beacons/probe responses/optional EAPOL)
 
 optional arguments:
   -h, --help            show this help message and exit
   -i IFACE, --iface IFACE
-                        Monitor‑mode interface (e.g. wlan0mon)
+                        Monitor-mode interface (e.g. wlan0mon)
   -r READ, --read READ  Read from pcap instead of live capture
   -l, --list-interfaces
                         List all available wireless interfaces and exit
   -t TIMEOUT, --timeout TIMEOUT
                         Sniffing duration in seconds (live mode) (default: 30)
-  --eapol               Also mark if a 4‑Way Handshake was observed (EAPOL frames)
+  --eapol               Also mark if a 4-Way Handshake was observed (EAPOL frames)
   --channel CHANNEL     Hint: channel to scan (set with iw/airmon externally; this is informational only)
 ```
 
@@ -245,7 +245,7 @@ optional arguments:
 
 AirDetect detects and displays the following WiFi security types, color-coded by security level:
 
-##### 🟢 Modern & Secure
+##### Modern & Secure
 
 **WPA3-Personal** (Green)
 - **Description**: Latest WiFi security standard using SAE (Simultaneous Authentication of Equals / Dragonfly)
@@ -280,7 +280,7 @@ AirDetect detects and displays the following WiFi security types, color-coded by
 - **Security Level**: High encryption, no authentication
 - **Example**: Modern public hotspots using WPA3 OWE
 
-##### 🔵 Standard & Secure
+##### Standard & Secure
 
 **WPA2-Personal** (Cyan)
 - **Description**: Current standard for most home networks using PSK (Pre-Shared Key)
@@ -296,7 +296,7 @@ AirDetect detects and displays the following WiFi security types, color-coded by
 - **Use Case**: Various scenarios
 - **Security Level**: Secure (details depend on configuration)
 
-##### 🟡 Legacy & Less Secure
+##### Legacy & Less Secure
 
 **WPA** (Yellow)
 - **Description**: Original WPA version 1 (legacy, deprecated)
@@ -306,7 +306,7 @@ AirDetect detects and displays the following WiFi security types, color-coded by
 - **Recommendation**: Upgrade to WPA2/WPA3
 - **Example**: Old routers from 2003-2006
 
-##### 🔴 Insecure & Unencrypted
+##### Insecure & Unencrypted
 
 **WEP** (Wired Equivalent Privacy) (Red)
 - **Description**: Obsolete encryption from 1999 - **completely broken**
@@ -329,15 +329,15 @@ AirDetect detects and displays the following WiFi security types, color-coded by
 ---
 
 **Security Recommendations:**
-- ✅ **Use**: WPA3-Personal, WPA3-Transition, or WPA2-Enterprise
-- ⚠️ **Acceptable**: WPA2-Personal with strong passwords (12+ chars, mixed case, numbers, symbols)
-- ❌ **Never use**: WEP or Open networks for sensitive data
-- 🔒 **Public WiFi**: Always use VPN on Open networks; prefer OWE when available
+- **Use**: WPA3-Personal, WPA3-Transition, or WPA2-Enterprise
+- **Acceptable**: WPA2-Personal with strong passwords (12+ chars, mixed case, numbers, symbols)
+- **Never use**: WEP or Open networks for sensitive data
+- **Public WiFi**: Always use VPN on Open networks; prefer OWE when available
 
 #### Feature Flags
 
 **Security Features:**
-- **🔓WPS** (red) - WPS enabled and unlocked (vulnerable to brute-force)
+- **WPS** (red) - WPS enabled and unlocked (vulnerable to brute-force)
 - **WPS** (yellow) - WPS enabled and locked
 - **PMF:req** (green) - Protected Management Frames required (protects against deauth attacks)
 - **PMF:cap** (cyan) - Protected Management Frames supported but optional
@@ -352,17 +352,17 @@ AirDetect detects and displays the following WiFi security types, color-coded by
 - **20MHz / 40MHz / 80MHz / 160MHz** (blue) - Channel width (higher = more bandwidth)
 
 **Security Warnings:**
-- **⚠️DA:X** (red) - Deauth attack detected! (X = number of deauth frames > 10)
+- **DA:X** (red) - Deauth attack detected! (X = number of deauth frames > 10)
 
 #### Summary Statistics
 
 ```
 Total APs: 10
-  • WPS enabled: 1      # Yellow if >0 (security risk), green if 0
-  • PMF required: 0     # Green if >0 (good), yellow if 0
-  • WPA3: 1             # Green if >0 (modern security), yellow if 0
-  • Hidden SSID: 0      # Informational count
-  • ⚠️ Potential attacks detected: 2 APs with excessive deauth frames
+  - WPS enabled: 1      # Yellow if >0 (security risk), green if 0
+  - PMF required: 0     # Green if >0 (good), yellow if 0
+  - WPA3: 1             # Green if >0 (modern security), yellow if 0
+  - Hidden SSID: 0      # Informational count
+  - Potential attacks detected: 2 APs with excessive deauth frames
 ```
 
 ## Examples
@@ -420,51 +420,40 @@ sudo ./airdetect.py -i wlan0mon -t 60 --channel 6
 
 ## Vendor Database
 
-AirDetect includes a comprehensive vendor OUI (Organizationally Unique Identifier) database in `vendor_oui.json`:
+AirDetect includes a comprehensive vendor OUI (Organizationally Unique Identifier) database in `oui-vendors.json`:
 
-- **1,366+ vendor entries** covering 2010-2025
-- **Network Equipment**: Cisco (300+), TP-Link (33), Netgear (40), Asus (50+), Ubiquiti (18)
-- **Printers**: HP (75), Canon (33), Epson (19), Brother (13), Xerox (8)
-- **Consumer Electronics**: Apple (200+), Samsung (200+), Google (15), Huawei (80+), Xiaomi (50+)
-- **IoT & Development**: Raspberry Pi (5), Arduino, ESP32 modules
+- **58,000+ entries** compiled from the official IEEE registries (MA-L, MA-M, MA-S, IAB), the Nmap prefix list, and the Wireshark `manuf` list
+- **24-bit OUIs** are stored at the top level as `"XX:XX:XX": "Vendor"`
+- **28/36-bit sub-blocks** (IEEE MA-M/MA-S and Wireshark sub-allocations) live under a `_prefixes` map, keyed by hex nibbles whose length encodes the mask. `airdetect.py` resolves a BSSID by longest-prefix match (36 -> 28 -> 24 bit), so sub-block owners resolve to the correct vendor instead of the shared 24-bit registrant.
 
 The database is automatically loaded at startup with fallback to a minimal built-in list if the file is missing.
 
 ### Updating the Vendor Database
 
-To add new vendors, edit `vendor_oui.json`:
+The database is generated by `getvendors.py` from the sources listed in `vendor-sources.conf`. To refresh it:
 
-```json
-{
-  "comment": "WiFi Vendor OUI Database (2010-2025)",
-  "version": "1.0",
-  "last_updated": "2025-11-04",
-  "vendors": {
-    "00:0C:43": "MediaTek",
-    "2C:91:AB": "TP-Link",
-    "A0:B5:49": "Cisco Meraki",
-    "XX:XX:XX": "Your New Vendor"
-  }
-}
+```bash
+# Regenerate oui-vendors.json from all configured sources
+python3 getvendors.py -c vendor-sources.conf -o oui-vendors.json -v
 ```
 
-Find OUI information at: https://maclookup.app/ or https://standards-oui.ieee.org/
+To add a source, edit `vendor-sources.conf` (IEEE CSV, Nmap and Wireshark `manuf` formats are auto-detected). Find OUI information at: https://maclookup.app/ or https://standards-oui.ieee.org/
 
 ## Platform-Specific Notes
 
 ### macOS
 
 **Advantages:**
-- ✅ No monitor mode required (uses CoreWLAN framework)
-- ✅ No root/sudo needed for basic scanning
-- ✅ Easy to use, just run the script
-- ✅ Works on all Mac laptops and desktops with WiFi
+- No monitor mode required (uses CoreWLAN framework)
+- No root/sudo needed for basic scanning
+- Easy to use, just run the script
+- Works on all Mac laptops and desktops with WiFi
 
 **Limitations:**
-- ⚠️ Limited information elements (IE) parsing
-- ⚠️ Fewer advanced features detected (WPS, PMF details, channel width)
-- ⚠️ Cannot capture EAPOL handshakes
-- ℹ️ For advanced features, use Linux with monitor mode or analyze PCAP files
+- Limited information elements (IE) parsing
+- Fewer advanced features detected (WPS, PMF details, channel width)
+- Cannot capture EAPOL handshakes
+- For advanced features, use Linux with monitor mode or analyze PCAP files
 
 **Best Practices:**
 ```bash
@@ -478,11 +467,11 @@ Find OUI information at: https://maclookup.app/ or https://standards-oui.ieee.or
 ### Linux
 
 **Advantages:**
-- ✅ Full monitor mode support
-- ✅ Complete information element (IE) parsing
-- ✅ All advanced features detected (WPS, PMF, channel width, etc.)
-- ✅ Can capture EAPOL handshakes
-- ✅ Can detect deauth attacks
+- Full monitor mode support
+- Complete information element (IE) parsing
+- All advanced features detected (WPS, PMF, channel width, etc.)
+- Can capture EAPOL handshakes
+- Can detect deauth attacks
 
 **Requirements:**
 - Wireless adapter with monitor mode support
@@ -505,7 +494,7 @@ sudo ./airdetect.py -i wlan0mon -t 120 --eapol
 sudo airmon-ng stop wlan0mon
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### macOS Issues
 
@@ -533,20 +522,23 @@ pip install pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
 ./airdetect.py -t 120
 
 # Enable Location Services for your terminal app:
-# System Settings → Privacy & Security → Location Services → Terminal/iTerm2
+# System Settings -> Privacy & Security -> Location Services -> Terminal/iTerm2
 ```
 
 #### 3. Missing Vendor Names (Shows "Unknown")
 
-**Cause:** `vendor_oui.json` file not found or not in the same directory.
+**Cause:** `oui-vendors.json` file not found or not in the same directory.
 
 **Solution:**
 ```bash
 # Check if vendor database exists
-ls -lh vendor_oui.json
+ls -lh oui-vendors.json
 
 # If missing, download it from the repository
-wget https://raw.githubusercontent.com/rtulke/AirJack/main/vendor_oui.json
+wget https://raw.githubusercontent.com/rtulke/AirJack/main/oui-vendors.json
+
+# Or regenerate it from the configured sources
+python3 getvendors.py -c vendor-sources.conf -o oui-vendors.json
 ```
 
 ### Linux Issues
@@ -679,10 +671,10 @@ tshark -r capture.pcap -T json > capture.json
    ```
 
 2. **Identify Vulnerable Networks:**
-   - Look for 🔓WPS (unlocked WPS)
+   - Look for WPS (unlocked WPS)
    - Look for WEP/Open networks (red security)
    - Check for missing PMF (no PMF:req)
-   - Note networks with deauth attacks (⚠️DA:X)
+   - Note networks with deauth attacks (DA:X)
 
 3. **Detailed Analysis:**
    ```bash
@@ -706,15 +698,15 @@ tshark -r capture.pcap -T json > capture.json
 
 **AirDetect is a passive monitoring tool. Please use responsibly:**
 
-- ✅ **DO**: Use on your own networks for security auditing
-- ✅ **DO**: Use for authorized penetration testing
-- ✅ **DO**: Use for educational purposes in controlled environments
-- ✅ **DO**: Respect privacy laws and regulations
+- **DO**: Use on your own networks for security auditing
+- **DO**: Use for authorized penetration testing
+- **DO**: Use for educational purposes in controlled environments
+- **DO**: Respect privacy laws and regulations
 
-- ❌ **DON'T**: Monitor networks without authorization
-- ❌ **DON'T**: Use for malicious purposes
-- ❌ **DON'T**: Attempt to decrypt or access networks you don't own
-- ❌ **DON'T**: Share captured data containing private information
+- **DON'T**: Monitor networks without authorization
+- **DON'T**: Use for malicious purposes
+- **DON'T**: Attempt to decrypt or access networks you don't own
+- **DON'T**: Share captured data containing private information
 
 **Legal Note:** Simply scanning for WiFi networks is generally legal (similar to viewing available networks in your WiFi settings), but laws vary by jurisdiction. Capturing packet data, even passively, may require authorization. Always obtain proper permission.
 
@@ -724,14 +716,11 @@ Contributions are welcome! Here's how you can help:
 
 ### Adding New Vendors
 
-Submit PR with updates to `vendor_oui.json`:
-```json
-{
-  "vendors": {
-    "XX:XX:XX": "New Vendor Name"
-  }
-}
+The vendor database is generated, not hand-edited. To add or update vendors, add a source to `vendor-sources.conf` and regenerate:
+```bash
+python3 getvendors.py -c vendor-sources.conf -o oui-vendors.json -v
 ```
+Then submit a PR with the updated `vendor-sources.conf` (and, if you regenerated it, `oui-vendors.json`).
 
 ### Feature Requests
 
@@ -783,5 +772,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ---
 
 **Version**: 1.0
-**Last Updated**: 2025-11-04
+**Last Updated**: 2026-08-13
 **Author**: AirJack Project Contributors
