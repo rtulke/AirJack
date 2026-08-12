@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Wi‑Fi AP Security Scanner (passive)
+Wi-Fi AP Security Scanner (passive)
 
 Detects WLAN security characteristics without associating to the AP by
 sniffing beacon and probe response frames (and optionally observing EAPOL
@@ -11,7 +11,7 @@ handshakes if they happen on-air). Reports:
   • AKM suites (PSK, 802.1X, SAE, FT, OWE, …)
   • PMF/802.11w: capable/required
   • 802.11r presence (via FT AKMs)
-  • Whether a 4‑Way Handshake was OBSERVED (passively) for that BSSID
+  • Whether a 4-Way Handshake was OBSERVED (passively) for that BSSID
 
 Requirements:
   • Linux with a wireless interface in monitor mode (e.g. wlan0mon)
@@ -3339,14 +3339,14 @@ def list_interfaces():
 
 
 def main():
-    p = argparse.ArgumentParser(description="Passive Wi‑Fi AP security analyzer (beacons/probe responses/optional EAPOL)")
+    p = argparse.ArgumentParser(description="Passive Wi-Fi AP security analyzer (beacons/probe responses/optional EAPOL)")
     src = p.add_mutually_exclusive_group(required=False)
-    src.add_argument("-i", "--iface", help="Monitor‑mode interface (e.g. wlan0mon)")
+    src.add_argument("-i", "--iface", help="Monitor-mode interface (e.g. wlan0mon)")
     src.add_argument("-r", "--read", help="Read from pcap instead of live capture")
     src.add_argument("-l", "--list-interfaces", action="store_true", help="List all available wireless interfaces and exit")
     p.add_argument("-t", "--timeout", type=int, default=30, help="Sniffing duration in seconds (non-permanent mode only)")
     p.add_argument("-I", "--interval", type=int, default=5, help="Scan and display refresh interval in seconds (permanent mode only, default: 5s)")
-    p.add_argument("--eapol", action="store_true", help="Also mark if a 4‑Way Handshake was observed (EAPOL frames)")
+    p.add_argument("--eapol", action="store_true", help="Also mark if a 4-Way Handshake was observed (EAPOL frames)")
     p.add_argument("--channel", type=int, help="Hint: channel to scan (set with iw/airmon externally; this is informational only)")
     p.add_argument("-p", "--permanent", action="store_true", help="Continuous scan mode - maintains AP pool and updates display in real-time")
 

@@ -122,11 +122,14 @@ Configuration:
   -C PATH, --create-config PATH
                         Create a default configuration file at the specified path
 
-Capture Backend:
-  --capture-tool {zizzania,airsnare}
-                        Select capture backend (default: auto, prefers zizzania if available)
-  --zizzania-path PATH  Path to zizzania executable
+Tool Paths:
+  --hashcat-path PATH   Path to hashcat executable
   --airsnare-path PATH  Path to airsnare executable
+  --zizzania-path PATH  Path to zizzania executable
+
+Capture Backend:
+  --capture-tool {airsnare,zizzania}
+                        Select capture backend (default: auto, prefers zizzania if available)
 
 Network Selection:
   -i INTERFACE, --interface INTERFACE
@@ -137,7 +140,8 @@ Network Selection:
 Capture Options:
   -d, --deauth          Enable deauthentication (default: disabled)
   --capture-file FILE   Output capture file (default: capture.pcap)
-  
+  --hashcat-file FILE   Output hashcat file (default: capture.hc22000)
+
 Cracking Options:
   -m MODE, --mode MODE  Attack mode: 1=Dictionary, 2=Brute-force, 3=Manual
   -w FILE, --wordlist FILE
@@ -151,6 +155,8 @@ Misc Options:
                         Timeout for location authorization (default: 60 seconds)
   --cleanup             Clean up sensitive files after completion
   --dry-run             Simulate actions without running external tools
+  --ignore-missing      Ignore missing tools and continue
+  --no-banner           Disable banner display
   -v, --verbose         Enable verbose output
 ```
 
