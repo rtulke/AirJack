@@ -9,5 +9,7 @@ pyfiglet>=0.8.post1
 pyobjc-framework-CoreWLAN>=9.0
 pyobjc-framework-CoreLocation>=9.0
 
-# Optional: for airdetect.py (passive WiFi scanner)
+# For airdetect.py (passive WiFi scanner) and, on macOS 15+/26, for airjack.py
+# itself: BSSIDs are recovered from 802.11 beacons in monitor mode because
+# CoreWLAN redacts CWNetwork.bssid() for command-line processes.
 scapy>=2.5.0
