@@ -225,19 +225,28 @@ def monitor_bssid_scan(interface="en0", channels=None, dwell=0.5, rounds=2,
     if not targets:
         return []
 
-    try:
-        iface.disassociate()
-    except Exception:
-        pass
-
-    pcap = tempfile.mktemp(suffix=".pcap", dir="/tmp")
+    # Create the capture file securely: root writes to it via tcpdump -w, so a
+    # predictable mktemp() path in world-writable /tmp is a symlink/TOCTOU risk.
+    fd, pcap = tempfile.mkstemp(suffix=".pcap", dir="/tmp")
+    os.close(fd)
     proc = subprocess.Popen(
         ["/usr/sbin/tcpdump", "-I", "-i", interface, "-y", "IEEE802_11_RADIO",
          "-w", pcap, "-U", "-s", "512"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.2)
     if proc.poll() is not None:                 # tcpdump failed to enter RFMON
+        try:
+            os.unlink(pcap)
+        except OSError:
+            pass
         return []
+
+    # Free the card only now that RFMON is confirmed up, so a doomed attempt
+    # (e.g. no BPF access) does not needlessly drop the user's Wi-Fi.
+    try:
+        iface.disassociate()
+    except Exception:
+        pass
 
     start = time.time()
     try:
@@ -312,6 +321,10 @@ def _run_mon_bssid_scan_cli(args):
 # --- macOS 15+ Virtual Environment Warning ---
 def check_macos_venv_issue():
     """Check if running in venv on macOS 15+ and warn user."""
+    # Never prompt during the internal, sudo-reinvoked monitor-mode subcommand:
+    # its stdout must stay a single JSON line and it must not block on input().
+    if '--mon-bssid-scan' in sys.argv:
+        return
     # Check if we're on macOS
     if platform.system() != 'Darwin':
         return
@@ -921,15 +934,21 @@ class WiFiCracker:
         except Exception:
             pass
 
-        # 1) In-process attempt (no elevation needed where BPF is accessible).
-        self.log.info("Recovering BSSIDs via monitor mode (this briefly drops Wi-Fi)...")
-        try:
-            results = monitor_bssid_scan(interface=iface_name, channels=chan_list)
-        except Exception as e:
-            self.log.debug(f"In-process monitor scan failed: {e}")
-            results = []
-        if results:
-            return results
+        # 1) In-process attempt — only worth trying (it disassociates Wi-Fi and
+        # spins up tcpdump) when RFMON can actually succeed unprivileged: we are
+        # already root, or /dev/bpf* is readable (e.g. Wireshark's ChmodBPF).
+        # Otherwise skip straight to sudo to avoid a doomed Wi-Fi drop.
+        can_inprocess = (hasattr(os, "geteuid") and os.geteuid() == 0) or \
+            any(os.access(f"/dev/bpf{i}", os.R_OK) for i in range(8))
+        if can_inprocess:
+            self.log.info("Recovering BSSIDs via monitor mode (this briefly drops Wi-Fi)...")
+            try:
+                results = monitor_bssid_scan(interface=iface_name, channels=chan_list)
+            except Exception as e:
+                self.log.debug(f"In-process monitor scan failed: {e}")
+                results = []
+            if results:
+                return results
 
         # 2) Privileged fallback: re-invoke airjack under sudo.
         self.log.warning("Monitor mode needs elevated privileges here; requesting sudo "
@@ -942,12 +961,28 @@ class WiFiCracker:
             self.log.error(f"Could not run sudo: {e}")
             return []
 
+        # The child runs as root but must import scapy/CoreWLAN, which are often
+        # installed only for the invoking user (pip --user or a venv) and are
+        # NOT on root's default import path. Pass the interpreter's own
+        # site-packages via PYTHONPATH and tell sudo to preserve it, otherwise
+        # the child fails at `import CoreWLAN`/`import scapy`.
+        import site
+        py_paths = [p for p in sys.path if p and 'site-packages' in p]
+        try:
+            py_paths.append(site.getusersitepackages())
+        except Exception:
+            pass
+        env = dict(os.environ)
+        env['PYTHONPATH'] = os.pathsep.join(
+            dict.fromkeys(filter(None, py_paths + [env.get('PYTHONPATH', '')])))
+
         script = os.path.abspath(__file__)
-        cmd = ["sudo", "-n", sys.executable, script, "--mon-bssid-scan", "-i", iface_name]
+        cmd = ["sudo", "--preserve-env=PYTHONPATH", "-n", sys.executable, script,
+               "--mon-bssid-scan", "-i", iface_name]
         if chan_list:
             cmd += ["--mon-channels", ",".join(str(c) for c in chan_list)]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=150, env=env)
         except subprocess.TimeoutExpired:
             self.log.error("Monitor-mode scan timed out.")
             return []
@@ -976,7 +1011,10 @@ class WiFiCracker:
             ssid = r.get('ssid')
             if ssid:
                 by_ssid.setdefault(ssid, []).append(r)
-        used = set()
+        # Seed with BSSIDs CoreWLAN already provided (lowercased, as recovered
+        # entries are), so a recovered duplicate is never assigned to a second,
+        # different network on a mixed/rescan pass.
+        used = {n['bssid'].lower() for n in self.networks if n['bssid']}
         matched = 0
         for net in self.networks:
             if net['bssid']:
@@ -993,14 +1031,14 @@ class WiFiCracker:
                         pick = r
                         break
             if pick is None and (not net['ssid'] or net['ssid'] == "<hidden>"):
-                # Hidden SSID only: match by channel (prefer a hidden AP). We do
-                # NOT do this for named SSIDs — grabbing an arbitrary BSSID on
-                # the channel would target the wrong AP for the capture.
-                same_chan = [r for r in recovered
+                # Hidden SSID only: match by channel, but ONLY to a recovered AP
+                # that is itself hidden (ssid-less). We must not grab a named
+                # AP's BSSID here — that would aim the capture at the wrong AP.
+                # If no hidden AP is on this channel, leave it unresolved.
+                pick = next((r for r in recovered
                              if r['bssid'] not in used
-                             and r.get('channel') == net['channel_number']]
-                pick = next((r for r in same_chan if not r.get('ssid')), None) or \
-                    (same_chan[0] if same_chan else None)
+                             and not r.get('ssid')
+                             and r.get('channel') == net['channel_number']), None)
             if pick is not None:
                 net['bssid'] = pick['bssid'].upper()
                 used.add(pick['bssid'])
@@ -1042,21 +1080,12 @@ class WiFiCracker:
         current_status = location_manager.authorizationStatus()
         self.log.debug(f"Current authorization status: {current_status}")
 
-        # Track whether macOS already reports us as authorized. If so we skip
-        # the (no-op) prompt request but still fall through to the wait loop,
-        # which re-verifies BSSID access with the run loop serviced.
-        already_authorized = False
-
         # Handle None case early (can happen on some macOS versions)
         if current_status is None:
             self.log.warning("Unable to determine current authorization status (returned None)")
             self.log.warning("This may indicate a macOS system issue. Proceeding with authorization request...")
             # Don't return False here, continue with the request
         elif current_status in [3, 4]:  # 3 = always, 4 = when in use
-            # Status says authorized — but on macOS 15+ that is NOT sufficient:
-            # BSSIDs can still come back as None. Verify with a real scan and be
-            # explicit in the log so issue #11 reports are diagnosable, instead
-            # of returning True blindly.
             # Authorized is all we need: it de-randomizes CoreWLAN SSIDs. BSSIDs
             # (redacted on macOS 15+/26) are recovered separately via monitor
             # mode in scan_networks, so we no longer gate on a BSSID pre-check.
@@ -1079,16 +1108,14 @@ class WiFiCracker:
             self.log.error("Location services access is restricted (possibly by parental controls).")
             return False
 
-        # Request authorization for location services. Skip the prompt when
-        # macOS already reports us as authorized (it would be a no-op) — in that
-        # case we only need the wait loop below to re-verify BSSID availability.
-        if not already_authorized:
-            self.log.info("Requesting authorization for location services (required for WiFi scanning)...")
-            self.log.info("A permission popup should appear. If it doesn't appear within 10 seconds:")
-            self.log.info("1. Check System Settings > Privacy & Security > Location Services")
-            self.log.info("2. Look for your terminal app and ensure it's enabled")
-            self.log.info("3. On macOS 15+, you may need to manually add your terminal app to Location Services")
-            location_manager.requestWhenInUseAuthorization()
+        # Not-yet-decided (status 0/None): request authorization. The authorized
+        # (3/4) and denied (2) cases already returned above.
+        self.log.info("Requesting authorization for location services (required for WiFi scanning)...")
+        self.log.info("A permission popup should appear. If it doesn't appear within 10 seconds:")
+        self.log.info("1. Check System Settings > Privacy & Security > Location Services")
+        self.log.info("2. Look for your terminal app and ensure it's enabled")
+        self.log.info("3. On macOS 15+, you may need to manually add your terminal app to Location Services")
+        location_manager.requestWhenInUseAuthorization()
 
         # Wait for location services to be authorized
         max_wait = self.args.auth_timeout if self.args.auth_timeout is not None else 60
