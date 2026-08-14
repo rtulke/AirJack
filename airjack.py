@@ -55,6 +55,8 @@ import shutil
 import platform
 import threading
 import time
+import json
+import tempfile
 from os.path import expanduser, join, exists, dirname, abspath
 from time import sleep
 from typing import List, Dict, Tuple, Optional, Any, Union
@@ -105,6 +107,206 @@ class _AirJackLocationDelegate(NSObject):
 
     def locationManagerDidChangeAuthorization_(self, manager):
         pass
+
+
+# ---------------------------------------------------------------------------
+# macOS 15+/26 BSSID recovery via monitor mode
+# ---------------------------------------------------------------------------
+# On macOS 15 (Sequoia) and 26 (Tahoe) CoreWLAN redacts CWNetwork.bssid() to
+# None for command-line processes even when Location Services report the
+# process as authorized: BSSID exposure is additionally gated behind a real,
+# signed .app bundle, which a terminal-launched script can never satisfy. SSID,
+# RSSI and channel still come through — only the BSSID is stripped.
+#
+# We recover the BSSIDs the way any passive scanner does: put the Wi-Fi card
+# into monitor mode (RFMON) with tcpdump, hop across the channels CoreWLAN
+# already reported as in use, and read the BSSID straight out of the 802.11
+# beacon / probe-response headers. This path does not touch Location Services.
+# It needs root (RFMON + channel tuning), so the unprivileged main process
+# re-invokes this file under `sudo ... --mon-bssid-scan` and reads back a JSON
+# list of {bssid, ssid, channel}. See WiFiCracker._recover_bssids_via_monitor.
+
+def _freq_to_channel(freq):
+    """Map a radiotap channel frequency in MHz to an 802.11 channel number."""
+    if not freq:
+        return None
+    if 2412 <= freq <= 2472:
+        return (freq - 2407) // 5
+    if freq == 2484:
+        return 14
+    if 5000 <= freq <= 5900:
+        return (freq - 5000) // 5
+    if 5955 <= freq <= 7115:            # 6 GHz (Wi-Fi 6E)
+        return (freq - 5950) // 5
+    return None
+
+
+def _parse_beacon(pkt):
+    """Extract (bssid, ssid_or_None, channel_or_None) from an 802.11 mgmt frame.
+
+    Returns None if the frame carries no usable BSSID.
+    """
+    from scapy.layers.dot11 import Dot11, Dot11Elt, RadioTap
+    # Drop frames the radio flagged with a bad FCS: they parse into garbage
+    # (bogus BSSIDs / oversized SSID elements) and pollute the results.
+    try:
+        rt = pkt.getlayer(RadioTap)
+        flags = getattr(rt, "Flags", None)
+        if flags is not None and ("BadFCS" in flags or int(flags) & 0x40):
+            return None
+    except Exception:
+        pass
+
+    d = pkt.getlayer(Dot11)
+    if d is None or not d.addr3:
+        return None
+    bssid = d.addr3.lower()
+    if bssid in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"):
+        return None
+    ssid = None
+    channel = None
+    el = pkt.getlayer(Dot11Elt)
+    while isinstance(el, Dot11Elt):
+        if el.ID == 0 and ssid is None:                 # SSID element
+            raw = bytes(el.info)
+            if len(raw) > 32:                           # malformed IE (spec max 32)
+                return None
+            if raw and any(b != 0 for b in raw):        # skip hidden (all-null)
+                try:
+                    ssid = raw.decode("utf-8", "replace")
+                except Exception:
+                    ssid = None
+        elif el.ID == 3 and len(el.info) >= 1:          # DS Parameter Set
+            channel = el.info[0]
+        elif el.ID == 61 and len(el.info) >= 1 and channel is None:  # HT Operation
+            channel = el.info[0]
+        el = el.payload.getlayer(Dot11Elt)
+    if channel is None:
+        try:
+            channel = _freq_to_channel(getattr(pkt.getlayer(RadioTap), "ChannelFrequency", None))
+        except Exception:
+            channel = None
+    return bssid, ssid, channel
+
+
+def monitor_bssid_scan(interface="en0", channels=None, dwell=0.5, rounds=2,
+                       max_seconds=45):
+    """Recover BSSIDs via RFMON. MUST run as root. Returns [{bssid,ssid,channel}].
+
+    Args:
+        interface:  Wi-Fi interface (e.g. "en0").
+        channels:   list of channel numbers to hop; if empty, discovered via a
+                    CoreWLAN scan and then a sensible default set.
+        dwell:      seconds to linger on each channel per pass.
+        rounds:     number of passes over the channel list.
+        max_seconds: hard cap on the capture phase.
+    """
+    client = CoreWLAN.CWWiFiClient.sharedWiFiClient()
+    iface = client.interfaceWithName_(interface) or client.interface()
+    if iface is None:
+        return []
+
+    if not channels:
+        scan, _err = iface.scanForNetworksWithName_error_(None, None)
+        seen = set()
+        for n in (scan or []):
+            cw = n.wlanChannel()
+            if cw:
+                seen.add(cw.channelNumber())
+        channels = sorted(seen) or [1, 6, 11, 36, 40, 44, 48, 149, 153, 157, 161]
+
+    # Resolve channel numbers to CWChannel objects (one per number, first wins).
+    by_num = {}
+    for cw in (iface.supportedWLANChannels() or []):
+        num = cw.channelNumber()
+        if num in channels and num not in by_num:
+            by_num[num] = cw
+    targets = [by_num[n] for n in channels if n in by_num]
+    if not targets:
+        return []
+
+    try:
+        iface.disassociate()
+    except Exception:
+        pass
+
+    pcap = tempfile.mktemp(suffix=".pcap", dir="/tmp")
+    proc = subprocess.Popen(
+        ["/usr/sbin/tcpdump", "-I", "-i", interface, "-y", "IEEE802_11_RADIO",
+         "-w", pcap, "-U", "-s", "512"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.2)
+    if proc.poll() is not None:                 # tcpdump failed to enter RFMON
+        return []
+
+    start = time.time()
+    try:
+        for _ in range(rounds):
+            for cw in targets:
+                iface.setWLANChannel_error_(cw, None)
+                time.sleep(dwell)
+                if time.time() - start > max_seconds:
+                    raise TimeoutError
+    except TimeoutError:
+        pass
+    finally:
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+
+    from scapy.all import rdpcap
+    from scapy.layers.dot11 import Dot11Beacon, Dot11ProbeResp
+    try:
+        pkts = rdpcap(pcap)
+    except Exception:
+        pkts = []
+    finally:
+        try:
+            os.unlink(pcap)
+        except Exception:
+            pass
+
+    found = {}
+    for p in pkts:
+        if not (p.haslayer(Dot11Beacon) or p.haslayer(Dot11ProbeResp)):
+            continue
+        parsed = _parse_beacon(p)
+        if not parsed:
+            continue
+        bssid, ssid, channel = parsed
+        e = found.get(bssid)
+        if e is None:
+            e = {"bssid": bssid, "ssid": ssid, "channel": channel, "count": 0}
+            found[bssid] = e
+        e["count"] += 1
+        if ssid and not e["ssid"]:
+            e["ssid"] = ssid
+        if channel and not e["channel"]:
+            e["channel"] = channel
+    return list(found.values())
+
+
+def _run_mon_bssid_scan_cli(args):
+    """Internal subcommand: run monitor_bssid_scan and print a single JSON line.
+
+    Everything else must stay off stdout so the parent can json.loads() it.
+    """
+    interface = args.interface or "en0"
+    channels = None
+    if args.mon_channels:
+        try:
+            channels = [int(x) for x in args.mon_channels.split(",") if x.strip()]
+        except ValueError:
+            channels = None
+    try:
+        results = monitor_bssid_scan(interface=interface, channels=channels)
+        print(json.dumps({"ok": True, "bssids": results}))
+        return 0
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": str(e), "bssids": []}))
+        return 1
 
 
 # --- macOS 15+ Virtual Environment Warning ---
@@ -683,27 +885,128 @@ class WiFiCracker:
         self.resolved_interface = "en0"
         return self.resolved_interface
 
-    def _bssid_available(self) -> bool:
-        """Test-scan and report whether real BSSIDs are actually visible.
-
-        On macOS 15+ (Sequoia) the authorization status can report "authorized"
-        (3/4) while CoreWLAN still returns networks with ``bssid() == None``,
-        because the process is not effectively granted Location access. The
-        status code alone is therefore not a reliable signal — an actual scan
-        that yields at least one non-None BSSID is (issue #11).
-        """
-        test_results, test_error = self.cwlan_interface.scanForNetworksWithName_error_(None, None)
-        if test_error is not None:
-            self.log.debug(f"BSSID verification scan error: {test_error}")
-        if not test_results:
-            self.log.debug("BSSID verification scan returned no networks.")
+    @staticmethod
+    def _is_macos_15_plus() -> bool:
+        """True on macOS 15 (Sequoia) or later, where CoreWLAN redacts BSSIDs."""
+        try:
+            return int(platform.mac_ver()[0].split('.')[0]) >= 15
+        except Exception:
             return False
-        for net in test_results:
-            if net.bssid() is not None:
-                return True
-        self.log.debug(f"BSSID verification scan returned {len(test_results)} "
-                       "network(s) but every bssid() was None.")
-        return False
+
+    def _note_bssid_source(self) -> None:
+        """Tell the user, once, where BSSIDs will actually come from."""
+        if self._is_macos_15_plus():
+            self.log.info("macOS 15+/26: BSSIDs are recovered via monitor mode during "
+                          "the scan (this needs sudo and briefly drops Wi-Fi).")
+
+    def _recover_bssids_via_monitor(self, channels) -> list:
+        """Recover CoreWLAN-redacted BSSIDs (macOS 15+/26) via monitor mode.
+
+        Tries an in-process RFMON scan first — on machines where /dev/bpf is
+        accessible without root (e.g. Wireshark's ChmodBPF) this avoids a sudo
+        prompt entirely — and falls back to re-invoking this file under sudo.
+        Returns a list of {bssid, ssid, channel} dicts.
+        """
+        try:
+            iface_name = self.cwlan_interface.interfaceName()
+        except Exception:
+            iface_name = self.resolve_interface() or "en0"
+        chan_list = sorted(set(channels)) if channels else None
+
+        # Remember the current network so run()'s finally-block can reconnect.
+        try:
+            cur = self.cwlan_interface.ssid()
+            if cur and not self.saved_ssid:
+                self.saved_ssid = cur
+        except Exception:
+            pass
+
+        # 1) In-process attempt (no elevation needed where BPF is accessible).
+        self.log.info("Recovering BSSIDs via monitor mode (this briefly drops Wi-Fi)...")
+        try:
+            results = monitor_bssid_scan(interface=iface_name, channels=chan_list)
+        except Exception as e:
+            self.log.debug(f"In-process monitor scan failed: {e}")
+            results = []
+        if results:
+            return results
+
+        # 2) Privileged fallback: re-invoke airjack under sudo.
+        self.log.warning("Monitor mode needs elevated privileges here; requesting sudo "
+                         "(this is the same elevation the capture step uses)...")
+        try:
+            if subprocess.run(["sudo", "-v"]).returncode != 0:
+                self.log.error("sudo authentication failed; cannot recover BSSIDs.")
+                return []
+        except Exception as e:
+            self.log.error(f"Could not run sudo: {e}")
+            return []
+
+        script = os.path.abspath(__file__)
+        cmd = ["sudo", "-n", sys.executable, script, "--mon-bssid-scan", "-i", iface_name]
+        if chan_list:
+            cmd += ["--mon-channels", ",".join(str(c) for c in chan_list)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
+        except subprocess.TimeoutExpired:
+            self.log.error("Monitor-mode scan timed out.")
+            return []
+        out = (proc.stdout or "").strip()
+        if not out:
+            self.log.error("Monitor-mode scan produced no output. "
+                           f"{(proc.stderr or '').strip()[:200]}")
+            return []
+        try:
+            data = json.loads(out.splitlines()[-1])
+        except Exception as e:
+            self.log.error(f"Could not parse monitor-scan output: {e}")
+            self.log.debug(f"stdout={out!r} stderr={(proc.stderr or '')!r}")
+            return []
+        if not data.get("ok"):
+            self.log.error(f"Monitor-mode scan error: {data.get('error')}")
+        return data.get("bssids", []) or []
+
+    def _merge_recovered_bssids(self, recovered) -> None:
+        """Fill missing BSSIDs on self.networks from monitor-mode results,
+        matching by SSID (channel as tie-breaker) and falling back to a
+        channel-only match for hidden SSIDs."""
+        missing_before = sum(1 for n in self.networks if not n['bssid'])
+        by_ssid = {}
+        for r in recovered:
+            ssid = r.get('ssid')
+            if ssid:
+                by_ssid.setdefault(ssid, []).append(r)
+        used = set()
+        matched = 0
+        for net in self.networks:
+            if net['bssid']:
+                continue
+            cands = by_ssid.get(net['ssid'], [])
+            pick = None
+            for r in cands:                      # same SSID + same channel
+                if r['bssid'] not in used and r.get('channel') == net['channel_number']:
+                    pick = r
+                    break
+            if pick is None:                     # same SSID, any channel
+                for r in cands:
+                    if r['bssid'] not in used:
+                        pick = r
+                        break
+            if pick is None and (not net['ssid'] or net['ssid'] == "<hidden>"):
+                # Hidden SSID only: match by channel (prefer a hidden AP). We do
+                # NOT do this for named SSIDs — grabbing an arbitrary BSSID on
+                # the channel would target the wrong AP for the capture.
+                same_chan = [r for r in recovered
+                             if r['bssid'] not in used
+                             and r.get('channel') == net['channel_number']]
+                pick = next((r for r in same_chan if not r.get('ssid')), None) or \
+                    (same_chan[0] if same_chan else None)
+            if pick is not None:
+                net['bssid'] = pick['bssid'].upper()
+                used.add(pick['bssid'])
+                matched += 1
+        self.log.info(f"Recovered {matched}/{missing_before} redacted BSSID(s) via "
+                      "monitor mode.")
 
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
@@ -754,18 +1057,20 @@ class WiFiCracker:
             # BSSIDs can still come back as None. Verify with a real scan and be
             # explicit in the log so issue #11 reports are diagnosable, instead
             # of returning True blindly.
-            already_authorized = True
-            self.log.info(f"Location Services report authorized (status {current_status}); "
-                          "verifying BSSID access...")
-            if self._bssid_available():
-                self.log.info("BSSID access confirmed, continuing...")
-                return True
-            self.log.warning(f"Status reports authorized ({current_status}) but no BSSIDs are "
-                             "visible yet — networks would show 'BSSID: None'.")
-            self.log.warning("This is the known macOS 15+ CoreLocation/CoreWLAN limitation "
-                             "(issue #11). Re-verifying with a serviced run loop before giving up...")
+            # Authorized is all we need: it de-randomizes CoreWLAN SSIDs. BSSIDs
+            # (redacted on macOS 15+/26) are recovered separately via monitor
+            # mode in scan_networks, so we no longer gate on a BSSID pre-check.
+            self.log.info(f"Location Services authorized (status {current_status}).")
+            self._note_bssid_source()
+            return True
         elif current_status == 2:  # denied
-            # If denied, inform user
+            if self._is_macos_15_plus():
+                self.log.warning("Location Services previously denied; continuing with "
+                                 "monitor-mode BSSID recovery (SSID names may be randomized).")
+                self.log.warning("For accurate SSID names: System Settings > Privacy & "
+                                 "Security > Location Services.")
+                self._note_bssid_source()
+                return True
             self.log.error("Location services access was previously denied.")
             self.log.error("Please enable it in: System Settings > Privacy & Security > Location Services")
             self.log.error("Look for your terminal app (Terminal, iTerm2, etc.) and enable it.")
@@ -806,47 +1111,37 @@ class WiFiCracker:
 
             # 0 = not determined, 1 = restricted, 2 = denied, 3 = authorized always, 4 = authorized when in use
             if authorization_status in [3, 4]:
-                # macOS sometimes reports status 3 or 4 even when permission
-                # wasn't really granted — verify by checking for real BSSIDs.
-                self.log.debug("Status reports authorized, verifying with actual scan...")
-                if self._bssid_available():
-                    self.log.info("Received authorization, continuing...")
-                    return True
-                self.log.warning(f"Status shows {authorization_status} but no BSSIDs available")
-                self.log.warning("Location Services permission may not be properly granted")
-                # Continue waiting
+                self.log.info("Location Services authorized, continuing...")
+                self._note_bssid_source()
+                return True
 
 
-            # Check if denied during wait
+            # Denied during wait: on macOS 15+/26 we can still recover BSSIDs via
+            # monitor mode, so proceed — only the SSID names may be randomized.
             if authorization_status == 2:
+                if self._is_macos_15_plus():
+                    self.log.warning("Location denied; continuing with monitor-mode BSSID "
+                                     "recovery (SSID names may be randomized).")
+                    self._note_bssid_source()
+                    return True
                 self.log.error("Location services access was denied during authorization request.")
                 self.log.error("Please enable it in: System Settings > Privacy & Security > Location Services")
                 return False
 
             if i == max_wait - 1:
-                # Timeout reached - provide detailed instructions
-                if authorization_status in [0, 3, 4]:
-                    # Status 0 = not determined, or 3/4 but no real BSSIDs available
-                    self.log.error("Authorization timeout - Location Services are not working properly.")
-                    self.log.error("")
-                    self.log.error("Location Services are required to access WiFi BSSID information.")
-                    self.log.error("Without proper authorization, networks will show with BSSID: None")
-                    self.log.error("")
-                    self.log.error("Manual Setup Required:")
-                    self.log.error("1. Open System Settings > Privacy & Security > Location Services")
-                    self.log.error("2. Ensure Location Services is enabled (toggle at top)")
-                    self.log.error("3. Scroll down and find your terminal app (Terminal.app, iTerm2, Warp, etc.)")
-                    self.log.error("4. If your app is NOT in the list:")
-                    self.log.error("   - Click the '+' button")
-                    self.log.error("   - Navigate to /Applications/Utilities/")
-                    self.log.error("   - Select your terminal app (e.g., Terminal.app)")
-                    self.log.error("5. If your app IS in the list, enable the checkbox next to it")
-                    self.log.error("6. Restart this tool")
-                    self.log.error("")
-                    self.log.error(f"Note: macOS authorization status reported as {authorization_status}, but BSSIDs unavailable")
-                else:
-                    self.log.error("Unable to obtain authorization, exiting...")
-                    self.log.error(f"Final authorization status: {authorization_status}")
+                # Timeout reached with no decision. On macOS 15+/26 this is not
+                # fatal: BSSIDs come from monitor mode regardless, and CoreWLAN
+                # still returns usable (if possibly randomized) SSIDs.
+                if self._is_macos_15_plus():
+                    self.log.warning("No Location Services decision within timeout — "
+                                     "continuing. BSSIDs will be recovered via monitor "
+                                     "mode; SSID names may be approximate.")
+                    self._note_bssid_source()
+                    return True
+                self.log.error("Authorization timeout - Location Services are not working properly.")
+                self.log.error("Open System Settings > Privacy & Security > Location Services, "
+                               "enable it, then re-run.")
+                self.log.error(f"Final authorization status: {authorization_status}")
                 return False
 
             # Service the run loop for ~1s instead of a blind sleep(). This is
@@ -1157,11 +1452,10 @@ class WiFiCracker:
                     security_match = re.search(r'security=(.*?)(,|$)', str(result))
                     security = security_match.group(1) if security_match else "Unknown"
 
-                    # Get BSSID and skip if None (invalid network entry)
+                    # BSSID may be None on macOS 15+/26 (CoreWLAN redaction);
+                    # keep the entry and recover the BSSID via monitor mode
+                    # after the scan instead of dropping it here.
                     bssid = result.bssid()
-                    if bssid is None:
-                        self.log.debug(f"Skipping network with no BSSID (SSID: {result.ssid()})")
-                        continue
 
                     # wlanChannel() returns a CWChannel object; channelNumber() extracts
                     # the integer. result.channel() is deprecated and returns a CWChannel
@@ -1179,6 +1473,31 @@ class WiFiCracker:
                 except Exception as e:
                     self.log.warning(f"Error parsing network: {e}")
                     continue
+
+            # Recover BSSIDs that CoreWLAN redacted to None (macOS 15+/26).
+            missing = [n for n in self.networks if not n['bssid']]
+            if missing and self._is_macos_15_plus():
+                self.log.info(f"{len(missing)}/{len(self.networks)} network(s) have no "
+                              "BSSID (macOS redaction); recovering via monitor mode...")
+                chans = sorted({n['channel_number'] for n in self.networks
+                                if isinstance(n['channel_number'], int)})
+                recovered = self._recover_bssids_via_monitor(chans)
+                if recovered:
+                    self._merge_recovered_bssids(recovered)
+
+            # Drop entries whose BSSID could not be resolved — capture needs it.
+            unresolved = [n for n in self.networks if not n['bssid']]
+            if unresolved:
+                self.log.warning(f"{len(unresolved)} network(s) had no obtainable BSSID "
+                                 "and were hidden from the list.")
+                self.networks = [n for n in self.networks if n['bssid']]
+
+            if not self.networks:
+                self.log.error("No networks with a usable BSSID were found.")
+                if self._is_macos_15_plus():
+                    self.log.error("Monitor-mode recovery returned nothing — make sure "
+                                   "Wi-Fi is on, then re-run (it needs sudo).")
+                return False
 
             # Sort by RSSI descending; guard against None (some entries return None
             # for rssiValue() when the scan result is partially formed).
@@ -1896,7 +2215,13 @@ def setup_argparse() -> argparse.ArgumentParser:
                       help='Disable banner display')
     parser.add_argument('-v', '--verbose', action='store_true',
                       help='Enable verbose output (default: from config or disabled)')
-    
+
+    # Internal: monitor-mode BSSID recovery (re-invoked under sudo). Hidden.
+    parser.add_argument('--mon-bssid-scan', action='store_true',
+                      help=argparse.SUPPRESS)
+    parser.add_argument('--mon-channels', default=None,
+                      help=argparse.SUPPRESS)
+
     return parser
 
 
@@ -1908,7 +2233,12 @@ def main() -> int:
     """
     parser = setup_argparse()
     args = parser.parse_args()
-    
+
+    # Internal subcommand: run the monitor-mode BSSID scan (as root) and emit a
+    # single JSON line for the parent process. Handled before anything prints.
+    if getattr(args, 'mon_bssid_scan', False):
+        return _run_mon_bssid_scan_cli(args)
+
     # Handle config file creation if requested
     if args.create_config:
         config_manager = ConfigManager()
