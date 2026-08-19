@@ -142,7 +142,7 @@ def _freq_to_channel(freq):
 
 
 def _parse_beacon(pkt):
-    """Extract (bssid, ssid_or_None, channel_or_None) from an 802.11 mgmt frame.
+    """Extract (bssid, ssid_or_None, channel_or_None, rssi_or_None) from a frame.
 
     Returns None if the frame carries no usable BSSID.
     """
@@ -186,7 +186,14 @@ def _parse_beacon(pkt):
             channel = _freq_to_channel(getattr(pkt.getlayer(RadioTap), "ChannelFrequency", None))
         except Exception:
             channel = None
-    return bssid, ssid, channel
+    rssi = None
+    try:
+        sig = getattr(pkt.getlayer(RadioTap), "dBm_AntSignal", None)
+        if sig is not None:
+            rssi = int(sig)
+    except Exception:
+        rssi = None
+    return bssid, ssid, channel, rssi
 
 
 def monitor_bssid_scan(interface="en0", channels=None, dwell=0.5, rounds=2,
@@ -284,16 +291,19 @@ def monitor_bssid_scan(interface="en0", channels=None, dwell=0.5, rounds=2,
         parsed = _parse_beacon(p)
         if not parsed:
             continue
-        bssid, ssid, channel = parsed
+        bssid, ssid, channel, rssi = parsed
         e = found.get(bssid)
         if e is None:
-            e = {"bssid": bssid, "ssid": ssid, "channel": channel, "count": 0}
+            e = {"bssid": bssid, "ssid": ssid, "channel": channel,
+                 "rssi": rssi, "count": 0}
             found[bssid] = e
         e["count"] += 1
         if ssid and not e["ssid"]:
             e["ssid"] = ssid
         if channel and not e["channel"]:
             e["channel"] = channel
+        if rssi is not None and (e["rssi"] is None or rssi > e["rssi"]):
+            e["rssi"] = rssi          # keep the strongest sample
     return list(found.values())
 
 
@@ -1043,8 +1053,37 @@ class WiFiCracker:
                 net['bssid'] = pick['bssid'].upper()
                 used.add(pick['bssid'])
                 matched += 1
+
+        # Add APs seen only via monitor mode. In the denied/timeout path CoreWLAN
+        # redacts SSIDs, so the SSID-based fill above cannot match named APs and
+        # they would be dropped. Rather than guess a channel match onto a redacted
+        # placeholder (which would risk targeting the wrong AP), we surface the
+        # real beacon data directly: any recovered AP with a real SSID + BSSID
+        # that was not used to fill an existing entry becomes its own entry.
+        added = 0
+        leftovers = [r for r in recovered if r.get('ssid') and r['bssid'] not in used]
+        if leftovers:
+            chan_objs = {}
+            try:
+                for cw in (self.cwlan_interface.supportedWLANChannels() or []):
+                    chan_objs.setdefault(cw.channelNumber(), cw)
+            except Exception:
+                pass
+            for r in leftovers:
+                ch = r.get('channel')
+                self.networks.append({
+                    'ssid': r['ssid'],
+                    'bssid': r['bssid'].upper(),
+                    'rssi': r.get('rssi'),
+                    'channel_object': chan_objs.get(ch),
+                    'channel_number': ch if isinstance(ch, int) else '-',
+                    'security': 'Unknown',
+                })
+                used.add(r['bssid'])
+                added += 1
+
         self.log.info(f"Recovered {matched}/{missing_before} redacted BSSID(s) via "
-                      "monitor mode.")
+                      f"monitor mode; added {added} seen only in monitor mode.")
 
     def request_location_permission(self) -> bool:
         """Request permission to use location services for WiFi scanning.
@@ -1352,6 +1391,8 @@ class WiFiCracker:
         Returns:
             str: Colorized RSSI string
         """
+        if rssi is None:
+            return "-"
         if rssi > -60:
             # Green for strong signal
             return f"\033[92m{rssi}\033[0m"
