@@ -250,7 +250,19 @@ install_python_deps() {
             pip_install_for "$py" -r "$TEMP_DIR/requirements.txt"
         else
             print_warning "requirements.txt not found. Installing manually..."
-            pip_install_for "$py" prettytable pyfiglet pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+            # Cap the pyobjc stack on the CLT Python 3.9 interpreter: 12.0 has no
+            # cp39 wheel (yanked release) and fails to build from source on
+            # current clang. Newer interpreters get the latest release.
+            local py_minor
+            py_minor=$("$py" -c 'import sys; print(sys.version_info[1])')
+            if [ "$py_minor" -lt 10 ]; then
+                pip_install_for "$py" prettytable pyfiglet scapy \
+                    "pyobjc-core<12" "pyobjc-framework-Cocoa<12" \
+                    "pyobjc-framework-CoreWLAN<12" "pyobjc-framework-CoreLocation<12"
+            else
+                pip_install_for "$py" prettytable pyfiglet scapy \
+                    pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+            fi
         fi
         print_success "Python dependencies installed for $py."
     fi

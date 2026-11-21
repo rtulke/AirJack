@@ -5,9 +5,18 @@
 prettytable>=2.5.0
 pyfiglet>=0.8.post1
 
-# macOS framework bindings (required on macOS for CoreWLAN/CoreLocation)
-pyobjc-framework-CoreWLAN>=9.0
-pyobjc-framework-CoreLocation>=9.0
+# macOS framework bindings (required on macOS for CoreWLAN/CoreLocation).
+# On macOS 15+ the launcher/installer deliberately targets the Command Line
+# Tools system Python (3.9) so Location Services works. pyobjc-core 12.0 ships
+# no cp39 wheel (and is a yanked release), so pip would try to build it from
+# source and fail on current clang. Cap the pyobjc stack below 12 on Python
+# < 3.10; newer interpreters stay unbounded and get the latest release.
+pyobjc-core<12; python_version < "3.10"
+pyobjc-framework-Cocoa<12; python_version < "3.10"
+pyobjc-framework-CoreWLAN>=9.0,<12; python_version < "3.10"
+pyobjc-framework-CoreLocation>=9.0,<12; python_version < "3.10"
+pyobjc-framework-CoreWLAN>=9.0; python_version >= "3.10"
+pyobjc-framework-CoreLocation>=9.0; python_version >= "3.10"
 
 # For airdetect.py (passive WiFi scanner) and, on macOS 15+/26, for airjack.py
 # itself: BSSIDs are recovered from 802.11 beacons in monitor mode because
