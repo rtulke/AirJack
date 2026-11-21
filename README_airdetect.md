@@ -99,8 +99,9 @@ Using system Python (recommended for macOS):
 git clone https://github.com/rtulke/AirJack.git
 cd AirJack
 
-# Install dependencies for system Python
-/usr/bin/python3 -m pip install --user scapy pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+# Install dependencies for system Python. On macOS 15+ this is CLT Python 3.9,
+# which has no pyobjc-core 12 wheel, so cap the pyobjc stack below 12.
+/usr/bin/python3 -m pip install --user scapy "pyobjc-core<12" "pyobjc-framework-CoreWLAN<12" "pyobjc-framework-CoreLocation<12"
 
 # Make executable
 chmod +x airdetect.py
@@ -504,8 +505,9 @@ sudo airmon-ng stop wlan0mon
 
 **Solution:**
 ```bash
-# Option 1: Use system Python (recommended)
-/usr/bin/python3 -m pip install --user pyobjc-framework-CoreWLAN pyobjc-framework-CoreLocation
+# Option 1: Use system Python (recommended). On macOS 15+ (CLT Python 3.9)
+# cap the pyobjc stack below 12; 12.0 has no cp39 wheel and fails to build.
+/usr/bin/python3 -m pip install --user "pyobjc-core<12" "pyobjc-framework-CoreWLAN<12" "pyobjc-framework-CoreLocation<12"
 /usr/bin/python3 airdetect.py
 
 # Option 2: Install in virtual environment
